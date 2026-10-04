@@ -345,10 +345,10 @@ __e2setcost( 30 )
 
 e2function number entity:stargateGetRingAngle()
 	if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return -1 end
-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
+	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
 	local class = this:GetClass();
 	if (not table.HasValue(vg,class)) then return -1 end
-	if (class=="stargate_universe") then
+	if (class=="sg_universe") then
 		if (IsValid(this.Gate)) then
 			local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
 			if (angle<0) then angle = angle+360; end;
@@ -367,10 +367,10 @@ end
 
 e2function number wirelink:stargateGetRingAngle()
 	if not IsValid(this) or not this.IsStargate then return -1 end
-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
+	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
 	local class = this:GetClass();
 	if (not table.HasValue(vg,class)) then return -1 end
-	if (class=="stargate_universe") then
+	if (class=="sg_universe") then
 		if (IsValid(this.Gate)) then
 			local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
 			if (angle<0) then angle = angle+360; end;
@@ -537,7 +537,7 @@ e2function number entity:stargateOverloadTime()
 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return -1; end
 	local energyRequired = this.excessPowerLimit - this.excessPower;
 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
-	if(StarGate.IsIrisClosed(this)) then
+	if(this:IsIrisClosed()) then
 		timeLeft = timeLeft * 2;
 	end
 	if (this.isOverloading) then
@@ -556,7 +556,7 @@ e2function number wirelink:stargateOverloadTime()
 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return -1; end
 	local energyRequired = this.excessPowerLimit - this.excessPower;
 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
-	if(StarGate.IsIrisClosed(this)) then
+	if(this:IsIrisClosed()) then
 		timeLeft = timeLeft * 2;
 	end
 	if (this.isOverloading) then
@@ -703,13 +703,13 @@ e2function table entity:stargateAddressList()
 end
 
 e2function void wirelink:stargateRandomAddress(number mode)
-	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) or not StarGate or not StarGate.RandomGateName then return end
-	StarGate.RandomGateName(nil,this,nil,true,mode);
+	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) then return end
+	Lib.RandomGatesName(nil,this,nil,true,mode);
 end
 
 e2function void entity:stargateRandomAddress(number mode)
-	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) or not StarGate or not StarGate.RandomGateName or not(isOwner(self,this) or self.player:IsAdmin()) then return end
-	StarGate.RandomGateName(nil,this,nil,true,mode);
+	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) or not(isOwner(self,this) or self.player:IsAdmin()) then return end
+	Lib.RandomGatesName(nil,this,nil,true,mode);
 end
 
 e2function number entity:stargateTransferEnergy(number value)

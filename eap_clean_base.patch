@@ -1,0 +1,760 @@
+diff --git a/lua/autorun/eap_include.lua b/lua/autorun/eap_include.lua
+index fddccfb..2fa1b0d 100644
+--- a/lua/autorun/eap_include.lua
++++ b/lua/autorun/eap_include.lua
+@@ -23,9 +23,6 @@ IncludeCS('eap_librairies/shared/general.lua');
+ IncludeCS('weapons/gmod_tool/eap_base_tool.lua');
+ 
+ if(SERVER)then
+---CAP Reverse compatibility
+-include('eap_librairies/server/cap_reversecompatibility.lua')
+-
+ -- Wiremod
+ include('eap_librairies/server/wire.lua');
+ 
+diff --git a/lua/eap_librairies/server/cap_reversecompatibility.lua b/lua/eap_librairies/server/cap_reversecompatibility.lua
+deleted file mode 100644
+index ce303d4..0000000
+--- a/lua/eap_librairies/server/cap_reversecompatibility.lua
++++ /dev/null
+@@ -1,189 +0,0 @@
+-/*
+-	Cap Reverse compatibility functions for GarrysMod13
+-	Copyright (C) 2017  Elanis
+-
+-	This program is free software: you can redistribute it and/or modify
+-	it under the terms of the GNU General Public License as published by
+-	the Free Software Foundation, either version 3 of the License, or
+-	(at your option) any later version.
+-
+-	This program is distributed in the hope that it will be useful,
+-	but WITHOUT ANY WARRANTY; without even the implied warranty of
+-	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+-	GNU General Public License for more details.
+-
+-	You should have received a copy of the GNU General Public License
+-	along with this program.  If not, see <http://www.gnu.org/licenses/>.
+-
+-	---------------------------------------------------------------------
+-	
+-	Elanis' Note:
+-
+-	This functions are made to replace in most cases the CAP entities by EAP 
+-	equivalents. This system is made to avoid many bugs and compatibility problems
+-	Since the Advanced Duplicator 2 compatibility has been released, you can use 
+-	the EAP without the CAP and keep old CAP duplication without bugs.
+-*/
+-
+-MsgN("eap_librairies/server/cap_reversecompatibility.lua")
+-
+-Lib = Lib or {};
+-Lib.ReverseCompatibility = Lib.ReverseCompatibility or {};
+-
+-/* All CAP ents linked to their EAP equivalent */
+-Lib.ReverseCompatibility.Ents = {
+-	-- Ships
+-	["sg_vehicle_daedalus"] = "ship_daedalus",
+-	["sg_vehicle_dart"] = "ship_dart",
+-	["sg_vehicle_f302"] = "ship_f302",
+-	["sg_vehicle_glider"] = "ship_glider",
+-	["sg_vehicle_gate_glider"] = "ship_gate_glider",
+-	["puddle_jumper"] = "ship_puddle_jumper",
+-	["sg_vehicle_shuttle"] = "ship_shuttle",
+-	["sg_vehicle_teltac"] = "ship_teltak",
+-	-- Stargate
+-	["stargate_atlantis"] = "sg_atlantis",
+-	["stargate_infinity"] = "sg_infinity",
+-	["stargate_movie"] = "sg_movie",
+-	["stargate_orlin"] = "sg_orlin",
+-	["stargate_sg1"] = "sg_sg1",
+-	["stargate_supergate"] = "sg_supergate",
+-	["stargate_tollan"] = "sg_tollan",
+-	["stargate_universe"] = "sg_universe",
+-	-- DHD
+-	["dhd_sg1"] = "dhd_milk",
+-	["dhd_atlantis"] = "dhd_atl",
+-	["dhd_universe"] = "dhd_uni",
+-	["dhd_concept"] = "dhd_con",
+-	["dhd_city"] = "dhd_atl_city",
+-	["dhd_infinity"] = "dhd_inf",
+-	--Ring
+-	["ring_base_ancient"] = "rg_base_ancient",
+-	["ring_base_goauld"] = "rg_base_goauld",
+-	["ring_base_ori"] = "rg_base_ori",
+-	--Ring Panel
+-	["ring_panel_ancient"] = "rg_panel_ancient",
+-	["ring_panel_goauld"] = "rg_panel_goauld",
+-	["ring_panel_ori"] = "rg_panel_ori",
+-	--Obelisk
+-	["ancient_obelisk"] = "obelisk_ancient",
+-	["sodan_obelisk"] = "obelisk_sodan",
+-	--Transporters
+-	["transporter"] = "asgard_transporter",
+-	["atlantis_trans"] = "atlantis_transporter",
+-}
+-
+-/* Spawn compatibility */
+-local function CAPSpawnedEntDetect( ply, oldent ) -- @Elanis: Because of incompatibility between some CAP/EAP lua
+-	local oldclass=oldent:GetClass();
+-
+-	MsgN("CAPSpawnedEntDetect")
+-
+-	// Adv 2 compatibility
+-	if(oldclass=="gmod_contr_spawner") then
+-		Adv2Compat(oldent);
+-	end
+-
+-	local newclass=Lib.ReverseCompatibility.Ents[oldclass];
+-
+-	MsgN(oldclass);
+-	MsgN(newclass);
+-
+-	// No need to replace
+-	if(newclass==nil || newclass=="") then return end;
+-
+-	local pos = oldent:GetPos()
+-	local ang = oldent:GetAngles()
+-
+-	oldent:Remove()
+-
+-	ply:PrintMessage(HUD_PRINTTALK,oldclass..' '..Lib.Language.GetMessage("replacing_by_eap_sent"));
+-
+-	local newent = ents.Create(newclass);
+-	newent:SetPos(pos);
+-	newent:SetAngles(ang);
+-	newent:Spawn();
+-
+-	undo.Create(newclass)
+-   		undo.AddEntity(newent)
+-   		undo.SetPlayer(ply)
+-	undo.Finish()
+-
+-	newent:Activate();
+-	newent.Owner = ply;
+-	newent:SetVar("Owner",ply);
+-
+-	/* Special settings */
+-	if(string.sub(newclass,0, 5)=="ship_") then
+-		local PropLimit = GetConVar("EAP_ships_max"):GetInt()
+-
+-		if(ply:GetCount("EAP_ships")+1 > PropLimit) then
+-			ply:SendLua("GAMEMODE:AddNotify(Lib.Language.GetMessage(\"entity_limit_ships\"), NOTIFY_ERROR, 5); surface.PlaySound( \"buttons/button2.wav\" )");
+-		else
+-			if(newclass=="ship_puddle_jumper")then
+-			newent:SpawnBackDoor(nil,ply)
+-			newent:SpawnBulkHeadDoor(nil,ply)
+-			newent:SpawnToggleButton(ply)
+-			newent:SpawnShieldGen(ply)
+-			end
+-
+-			if(newclass=="ship_f302")then
+-			newent:CockpitSpawn(ply) -- Spawn the cockpit
+-			newent:SpawnSeats(ply); -- Spawn the seats
+-			newent:SpawnRocketClamps(nil,ply); -- Spawn the rocket clamps
+-			newent:SpawnMissile(ply); -- Spawn the missile props
+-			newent:Turrets(ply); -- Spawn turrets
+-			newent:SpawnWheels(nil,ply);
+-			end
+-
+-			if(newclass=="ship_teltak")then
+-			newent:SpawnRings(ply);
+-			newent:SpawnRingPanel(ply);
+-			newent:SpawnDoor(ply)
+-			newent:SpawnButtons(ply);
+-			end
+-
+-			ply:AddCount("EAP_ships", newent)
+-		end
+-	elseif(string.sub(newclass,0, 3)=="sg_") then	--Stargates
+-		newent:SetWire("Dialing Mode",-1);
+-
+-		if(newclass=="sg_orlin" or newclass=="sg_sg1" or newclass=="sg_infinity" or newclass=="sg_movie" or newclass=="sg_tollan")then
+-			newent:SetGateGroup("M@");
+-			newent:SetLocale(true);
+-		elseif(newclass=="sg_atlantis")then
+-			newent:SetGateGroup("P@");
+-			newent:SetLocale(true);
+-		elseif(newclass=="sg_universe")then
+-			newent:SetGateGroup("U@#");
+-			newent:SetLocale(true);
+-		end
+-
+-		if(newclass=="sg_orlin")then
+-			local e = ents.Create("ramps");
+-			e:SetModel("models/ZsDaniel/minigate-ramp/ramp.mdl");
+-			e:SetPos(pos);
+-			e:DrawShadow(true);
+-			e:Spawn();
+-			e:Activate();
+-			e:SetAngles(ang);
+-			if(CPPI and IsValid(p) and e.CPPISetOwner)then e:CPPISetOwner(p) end
+-			newent.Ramp = e;
+-			local phys = e:GetPhysicsObject();
+-			if(phys and phys:IsValid())then
+-				phys:EnableMotion(false);
+-			end
+-		end
+-		Lib.RandomGatesName(ply,newent,0,false,nil);
+-	elseif(string.sub(newclass,0, 7)=="rg_base") then	--Rings
+-		newent:SetModel(newent.BaseModel);
+-	elseif(newclass=="atlantis_transporter")then --Atlantis Transporter
+-		newent:CreateDoors(ply);
+-		newent:OnReloaded();
+-	end
+-end
+-
+-if(Lib.IsCapDetected)then -- Use this only if CAP is installed
+-    -- Ent Spawn
+-	hook.Add( "PlayerSpawnedSENT", "RemoveIfCAPBlackistedSENTIsSpawn", CAPSpawnedEntDetect );
+-end
+\ No newline at end of file
+diff --git a/lua/eap_librairies/shared/keyboard.lua b/lua/eap_librairies/shared/keyboard.lua
+index 10b3fc4..0a793c3 100644
+--- a/lua/eap_librairies/shared/keyboard.lua
++++ b/lua/eap_librairies/shared/keyboard.lua
+@@ -81,12 +81,10 @@ function Lib.KeyBoard.ResetKeys(p,name)
+ 	end
+ end
+ 
+-/* The next functions were made to overwrite the CAP KeyDown , then the EAP Ship will Work @Elanis , an another function will replace CAP ships by EAP ships to keep working */
++/* Overwrites the player's KeyDown so EAP's own ships can read key input @Elanis */
+ 
+ function Lib.KeyBoard.Override()
+ 
+-	if((StarGate==nil or StarGate.KeyBoard==nil) and Lib.IsCapDetected==true) then return false; end -- If CAP is initialized or if CAP isn't installed we can overwrite the function keyDown
+-
+ 	--################### Overwrites the player's KeyDown etc function to use our system, if two arguments are given @aVoN
+ 	local meta = FindMetaTable("Player");
+ 	if(not meta) then return end;
+diff --git a/lua/eap_librairies/vgui/init.lua b/lua/eap_librairies/vgui/init.lua
+index 69561bd..deb4f40 100644
+--- a/lua/eap_librairies/vgui/init.lua
++++ b/lua/eap_librairies/vgui/init.lua
+@@ -53,7 +53,7 @@ function PANEL:Init()
+ 	-- Help Label
+ 	self.VGUI.HelpLabel:SetPos(25,3);
+ 	self.VGUI.HelpLabel:SetWide(500);
+-	self.VGUI.HelpLabel:SetText(SGLanguage.GetMessage("stool_help"));
++	self.VGUI.HelpLabel:SetText(Lib.Language.GetMessage("stool_help"));
+ 	self.VGUI.HelpLabel:SetTextColor(Color(0,0,0,255))
+ end
+ 
+diff --git a/lua/eap_librairies/vgui/stargatemenus.lua b/lua/eap_librairies/vgui/stargatemenus.lua
+index b5cb9b0..3f13fd5 100644
+--- a/lua/eap_librairies/vgui/stargatemenus.lua
++++ b/lua/eap_librairies/vgui/stargatemenus.lua
+@@ -131,7 +131,7 @@ concommand.Add("eap_reset_menu",function(ply)
+ 	RVGUI:SetCookie("SG.Size.H",nil);
+ 	RVGUI:SetCookie("SG.Pos.X",nil);
+ 	RVGUI:SetCookie("SG.Pos.Y",nil);
+-	RVGUI:SetCookieName("StarGate.SAddressSelect"); 
++	RVGUI:SetCookieName("EAP.SAddressSelect");
+ 	RVGUI:SetCookie("ColumnSort",nil);
+ 	RVGUI:SetCookie("ColumnSortDesc",nil);	
+ 	RVGUI:SetCookie("DHDDial",nil);	
+@@ -829,7 +829,7 @@ function PANEL:LoadSettings()
+ 	if (self.Orlin) then
+ 		self:SetTextOrlin(self.Entity:GetGateGroup());
+ 	end
+-	self.VGUI.AddressSelect:SetSettings(self.Entity,self.GroupSystem,self.CanDialGroups,self.Nox or self.Entity:GetClass()=="stargate_orlin");
++	self.VGUI.AddressSelect:SetSettings(self.Entity,self.GroupSystem,self.CanDialGroups,self.Nox or self.Entity:GetClass()=="sg_orlin");
+ 	self.VGUI.AddressSelect:LoadSettings();
+ end
+ 
+diff --git a/lua/entities/energy_pulse_alkesh.lua b/lua/entities/energy_pulse_alkesh.lua
+index bee95f3..c374cde 100644
+--- a/lua/entities/energy_pulse_alkesh.lua
++++ b/lua/entities/energy_pulse_alkesh.lua
+@@ -47,9 +47,9 @@ function ENT:Initialize()
+ 	self.Entity:SetSolid(SOLID_VPHYSICS);
+ 	self:DrawShadow(false)
+ 	-- Config
+-	self.Radius = 20+30*self.Size;  --StarGate.CFG:Get("staff","radius",50);
+-	self.Damage = 30+40*self.Size;  --StarGate.CFG:Get("staff","damage",150);
+-	self.MaxPasses = 5; --StarGate.CFG:Get("staff","maxpasses",5);
++	self.Radius = 20+30*self.Size;
++	self.Damage = 30+40*self.Size;
++	self.MaxPasses = 5;
+ 	self.Passes = 1;
+ 	self.Passed = {}; -- Necessary, so you can shoot out of Catdaemons shield
+ 	local color = self.Entity:GetColor();
+diff --git a/lua/entities/energy_pulse_destiny.lua b/lua/entities/energy_pulse_destiny.lua
+index 7711091..af24809 100644
+--- a/lua/entities/energy_pulse_destiny.lua
++++ b/lua/entities/energy_pulse_destiny.lua
+@@ -47,9 +47,9 @@ function ENT:Initialize()
+ 	self.Entity:SetSolid(SOLID_VPHYSICS);
+ 	self:DrawShadow(false)
+ 	-- Config
+-	self.Radius = 20+30*self.Size;  --StarGate.CFG:Get("staff","radius",50);
+-	self.Damage = 30+40*self.Size;  --StarGate.CFG:Get("staff","damage",150);
+-	self.MaxPasses = 5; --StarGate.CFG:Get("staff","maxpasses",5);
++	self.Radius = 20+30*self.Size;
++	self.Damage = 30+40*self.Size;
++	self.MaxPasses = 5;
+ 	self.Passes = 1;
+ 	self.Passed = {}; -- Necessary, so you can shoot out of Catdaemons shield
+ 	local color = self.Entity:GetColor();
+diff --git a/lua/entities/energy_pulse_mothership.lua b/lua/entities/energy_pulse_mothership.lua
+index bee95f3..c374cde 100644
+--- a/lua/entities/energy_pulse_mothership.lua
++++ b/lua/entities/energy_pulse_mothership.lua
+@@ -47,9 +47,9 @@ function ENT:Initialize()
+ 	self.Entity:SetSolid(SOLID_VPHYSICS);
+ 	self:DrawShadow(false)
+ 	-- Config
+-	self.Radius = 20+30*self.Size;  --StarGate.CFG:Get("staff","radius",50);
+-	self.Damage = 30+40*self.Size;  --StarGate.CFG:Get("staff","damage",150);
+-	self.MaxPasses = 5; --StarGate.CFG:Get("staff","maxpasses",5);
++	self.Radius = 20+30*self.Size;
++	self.Damage = 30+40*self.Size;
++	self.MaxPasses = 5;
+ 	self.Passes = 1;
+ 	self.Passed = {}; -- Necessary, so you can shoot out of Catdaemons shield
+ 	local color = self.Entity:GetColor();
+diff --git a/lua/entities/energy_pulse_oneil.lua b/lua/entities/energy_pulse_oneil.lua
+index c30fe41..7bbb70d 100644
+--- a/lua/entities/energy_pulse_oneil.lua
++++ b/lua/entities/energy_pulse_oneil.lua
+@@ -47,9 +47,9 @@ function ENT:Initialize()
+ 	self.Entity:SetSolid(SOLID_VPHYSICS);
+ 	self:DrawShadow(false)
+ 	-- Config
+-	self.Radius = 20+30*self.Size;  --StarGate.CFG:Get("staff","radius",50);
+-	self.Damage = 30+40*self.Size;  --StarGate.CFG:Get("staff","damage",150);
+-	self.MaxPasses = 5; --StarGate.CFG:Get("staff","maxpasses",5);
++	self.Radius = 20+30*self.Size;
++	self.Damage = 30+40*self.Size;
++	self.MaxPasses = 5;
+ 	self.Passes = 1;
+ 	self.Passed = {}; -- Necessary, so you can shoot out of Catdaemons shield
+ 	local color = self.Entity:GetColor();
+diff --git a/lua/entities/energy_pulse_traveler.lua b/lua/entities/energy_pulse_traveler.lua
+index 9bdc71c..4e804d6 100644
+--- a/lua/entities/energy_pulse_traveler.lua
++++ b/lua/entities/energy_pulse_traveler.lua
+@@ -47,9 +47,9 @@ function ENT:Initialize()
+ 	self.Entity:SetSolid(SOLID_VPHYSICS);
+ 	self:DrawShadow(false)
+ 	-- Config
+-	self.Radius = 20+30*self.Size;  --StarGate.CFG:Get("staff","radius",50);
+-	self.Damage = 30+40*self.Size;  --StarGate.CFG:Get("staff","damage",150);
+-	self.MaxPasses = 5; --StarGate.CFG:Get("staff","maxpasses",5);
++	self.Radius = 20+30*self.Size;
++	self.Damage = 30+40*self.Size;
++	self.MaxPasses = 5;
+ 	self.Passes = 1;
+ 	self.Passed = {}; -- Necessary, so you can shoot out of Catdaemons shield
+ 	local color = self.Entity:GetColor();
+diff --git a/lua/entities/energy_pulse_wraith.lua b/lua/entities/energy_pulse_wraith.lua
+index 34c7646..c0072bc 100644
+--- a/lua/entities/energy_pulse_wraith.lua
++++ b/lua/entities/energy_pulse_wraith.lua
+@@ -49,7 +49,7 @@ function ENT:Initialize()
+ 	-- Config
+ 	self.Radius = 20+30*self.Size;
+ 	self.Damage = 20+35*self.Size;
+-	self.MaxPasses = 5; --StarGate.CFG:Get("staff","maxpasses",5);
++	self.MaxPasses = 5;
+ 	self.Passes = 1;
+ 	self.Passed = {}; -- Necessary, so you can shoot out of Catdaemons shield
+ 	local color = self.Entity:GetColor();
+diff --git a/lua/entities/energypulse.lua b/lua/entities/energypulse.lua
+index bee95f3..c374cde 100644
+--- a/lua/entities/energypulse.lua
++++ b/lua/entities/energypulse.lua
+@@ -47,9 +47,9 @@ function ENT:Initialize()
+ 	self.Entity:SetSolid(SOLID_VPHYSICS);
+ 	self:DrawShadow(false)
+ 	-- Config
+-	self.Radius = 20+30*self.Size;  --StarGate.CFG:Get("staff","radius",50);
+-	self.Damage = 30+40*self.Size;  --StarGate.CFG:Get("staff","damage",150);
+-	self.MaxPasses = 5; --StarGate.CFG:Get("staff","maxpasses",5);
++	self.Radius = 20+30*self.Size;
++	self.Damage = 30+40*self.Size;
++	self.MaxPasses = 5;
+ 	self.Passes = 1;
+ 	self.Passed = {}; -- Necessary, so you can shoot out of Catdaemons shield
+ 	local color = self.Entity:GetColor();
+diff --git a/lua/entities/energypulse_stun.lua b/lua/entities/energypulse_stun.lua
+index 4f4b4f4..cd81b8a 100644
+--- a/lua/entities/energypulse_stun.lua
++++ b/lua/entities/energypulse_stun.lua
+@@ -426,9 +426,7 @@ ENT.Glow = Lib.MaterialFromVMT(
+ );
+ ENT.Shaft = Material("effects/ar2ground2");
+ ENT.LightSettings = "cl_staff_dynlights_flight";
+-if (SGLanguage!=nil and SGLanguage.GetMessage!=nil) then
+-language.Add("energy_pulse",SGLanguage.GetMessage("energy_pulse_kill"));
+-end
++language.Add("energy_pulse",Lib.Language.GetMessage("energy_pulse_kill"));
+ ENT.RenderGroup = RENDERGROUP_BOTH;
+ 
+ --################### Init @aVoN
+diff --git a/lua/entities/gmod_wire_expression2/core/custom/stargate.lua b/lua/entities/gmod_wire_expression2/core/custom/stargate.lua
+index feb6795..15797b1 100644
+--- a/lua/entities/gmod_wire_expression2/core/custom/stargate.lua
++++ b/lua/entities/gmod_wire_expression2/core/custom/stargate.lua
+@@ -345,10 +345,10 @@ __e2setcost( 30 )
+ 
+ e2function number entity:stargateGetRingAngle()
+ 	if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return -1 end
+-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
++	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
+ 	local class = this:GetClass();
+ 	if (not table.HasValue(vg,class)) then return -1 end
+-	if (class=="stargate_universe") then
++	if (class=="sg_universe") then
+ 		if (IsValid(this.Gate)) then
+ 			local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
+ 			if (angle<0) then angle = angle+360; end;
+@@ -367,10 +367,10 @@ end
+ 
+ e2function number wirelink:stargateGetRingAngle()
+ 	if not IsValid(this) or not this.IsStargate then return -1 end
+-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
++	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
+ 	local class = this:GetClass();
+ 	if (not table.HasValue(vg,class)) then return -1 end
+-	if (class=="stargate_universe") then
++	if (class=="sg_universe") then
+ 		if (IsValid(this.Gate)) then
+ 			local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
+ 			if (angle<0) then angle = angle+360; end;
+@@ -537,7 +537,7 @@ e2function number entity:stargateOverloadTime()
+ 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return -1; end
+ 	local energyRequired = this.excessPowerLimit - this.excessPower;
+ 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
+-	if(StarGate.IsIrisClosed(this)) then
++	if(this:IsIrisClosed()) then
+ 		timeLeft = timeLeft * 2;
+ 	end
+ 	if (this.isOverloading) then
+@@ -556,7 +556,7 @@ e2function number wirelink:stargateOverloadTime()
+ 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return -1; end
+ 	local energyRequired = this.excessPowerLimit - this.excessPower;
+ 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
+-	if(StarGate.IsIrisClosed(this)) then
++	if(this:IsIrisClosed()) then
+ 		timeLeft = timeLeft * 2;
+ 	end
+ 	if (this.isOverloading) then
+@@ -703,13 +703,13 @@ e2function table entity:stargateAddressList()
+ end
+ 
+ e2function void wirelink:stargateRandomAddress(number mode)
+-	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) or not StarGate or not StarGate.RandomGateName then return end
+-	StarGate.RandomGateName(nil,this,nil,true,mode);
++	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) then return end
++	Lib.RandomGatesName(nil,this,nil,true,mode);
+ end
+ 
+ e2function void entity:stargateRandomAddress(number mode)
+-	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) or not StarGate or not StarGate.RandomGateName or not(isOwner(self,this) or self.player:IsAdmin()) then return end
+-	StarGate.RandomGateName(nil,this,nil,true,mode);
++	if not IsValid(this) or not this.IsStargate or not this:CAP_CanModify(self.player) or not(isOwner(self,this) or self.player:IsAdmin()) then return end
++	Lib.RandomGatesName(nil,this,nil,true,mode);
+ end
+ 
+ e2function number entity:stargateTransferEnergy(number value)
+diff --git a/lua/entities/naquadah_generator_mk2.lua b/lua/entities/naquadah_generator_mk2.lua
+index 6f6dc98..d5c3423 100644
+--- a/lua/entities/naquadah_generator_mk2.lua
++++ b/lua/entities/naquadah_generator_mk2.lua
+@@ -98,7 +98,6 @@ function ENT:Think()
+ 		end
+ 
+ 		if(self.depleted) then
+-			--if (self.HasRD) then StarGate.WireRD.OnRemove(self,true) end;
+ 			self:AddResource("energy",0);
+ 			self:SetWire("Active",0);
+ 			self:SetWire("Naquadah",0);
+diff --git a/lua/entities/ramps2.lua b/lua/entities/ramps2.lua
+index db5b40a..9245061 100644
+--- a/lua/entities/ramps2.lua
++++ b/lua/entities/ramps2.lua
+@@ -60,7 +60,7 @@ end
+ 
+ function ENT:GateFinder()
+ 	for _,v in pairs(Lib.GetConstrainedEnts(self.Entity,2) or {}) do
+-		if(IsValid(v) and v:GetClass():find("sg_*") and v:GetClass()!="stargate_dhd") then
++		if(IsValid(v) and v:GetClass():find("sg_*")) then
+ 		    self.Gate = v;
+ 		--else
+ 		--    self.Gate = nil;
+diff --git a/lua/entities/sg_atlantis/shared.lua b/lua/entities/sg_atlantis/shared.lua
+index d0ef740..8bc66b9 100644
+--- a/lua/entities/sg_atlantis/shared.lua
++++ b/lua/entities/sg_atlantis/shared.lua
+@@ -198,7 +198,7 @@ properties.Add( "Lib.Atl.AtlType.Off",
+ 
+ 	Filter		=	function( self, ent, ply )
+ 
+-						if ( !IsValid( ent ) || !IsValid( ply ) || !ent.IsStargate || ent:GetClass()!="stargate_atlantis" || ent:GetNWBool("GateSpawnerProtected",false) || !ent:GetNWBool("FasterDial",false)) then return false end
++						if ( !IsValid( ent ) || !IsValid( ply ) || !ent.IsStargate || ent:GetClass()!="sg_atlantis" || ent:GetNWBool("GateSpawnerProtected",false) || !ent:GetNWBool("FasterDial",false)) then return false end
+ 						if ( !gamemode.Call( "CanProperty", ply, "stargatemodify", ent ) ) then return false end
+ 						return true
+ 
+diff --git a/lua/entities/sg_base/init.lua b/lua/entities/sg_base/init.lua
+index 37fba90..aa1c240 100644
+--- a/lua/entities/sg_base/init.lua
++++ b/lua/entities/sg_base/init.lua
+@@ -630,7 +630,7 @@ function ENT:TriggerInputDefault(k,v,mobile,mdhd)
+ 			self.Target:SetWire("Received", v);
+ 		end
+ 	elseif(k == "Event Horizon Type") then
+-		if (table.HasValue(StarGate.EventHorizonTypes,v) and not self.IsSuperGate and not self.IsStargateOrlin) then
++		if (table.HasValue(Lib.EventHorizonTypes,v) and not self.IsSuperGate and not self.IsStargateOrlin) then
+ 			self.EventHorizonType = v;
+ 			self:SetNWString("EventHorizonType",self.EventHorizonType);
+ 			if (IsValid(self.EventHorizon)) then
+@@ -640,7 +640,7 @@ function ENT:TriggerInputDefault(k,v,mobile,mdhd)
+  	elseif(k == "Event Horizon Color") then
+ 		if (v.x==0 and v.y==0 and v.z==0) then
+ 			local type = self.EventHorizonType;
+-			local Data = StarGate.EventHorizonTypes[type] or {}
++			local Data = Lib.EventHorizonTypes[type] or {}
+ 			if (Data.Color) then v = Vector(Data.Color.r,Data.Color.g,Data.Color.b) end
+ 		end
+ 		self.EHColor = Color(v.x,v.y,v.z);
+diff --git a/lua/entities/sg_base/modules/lib.lua b/lua/entities/sg_base/modules/lib.lua
+index 801a862..bced72e 100644
+--- a/lua/entities/sg_base/modules/lib.lua
++++ b/lua/entities/sg_base/modules/lib.lua
+@@ -1397,6 +1397,12 @@ function ENT:GetIris()
+ 	return NULL;
+ end
+ 
++-- Native EAP replacement for CAP's StarGate.IsIrisClosed(gate)
++function ENT:IsIrisClosed()
++	local iris = self:GetIris();
++	return IsValid(iris) and iris.IsActivated or false;
++end
++
+ -- for e2 lib by AlexALX
+ function ENT:IrisToggle()
+ 	local iris = self:GetIris();
+diff --git a/lua/entities/stationary_staff_part.lua b/lua/entities/stationary_staff_part.lua
+index 70300b1..bd56987 100644
+--- a/lua/entities/stationary_staff_part.lua
++++ b/lua/entities/stationary_staff_part.lua
+@@ -49,9 +49,7 @@ end
+ 
+ if CLIENT then
+ 
+-if (SGLanguage!=nil and SGLanguage.GetMessage!=nil) then
+-	ENT.Category = Lib.Language.GetMessage("cat_weapons");
+-	ENT.PrintName = SGLanguage.GetMessage("entity_staff_weapon");
+-end
++ENT.Category = Lib.Language.GetMessage("cat_weapons");
++ENT.PrintName = Lib.Language.GetMessage("entity_staff_weapon");
+ 
+ end
+\ No newline at end of file
+diff --git a/lua/entities/tamperedzpm.lua b/lua/entities/tamperedzpm.lua
+index 0087ea5..ea5786c 100644
+--- a/lua/entities/tamperedzpm.lua
++++ b/lua/entities/tamperedzpm.lua
+@@ -165,7 +165,6 @@ function ENT:Think()
+ 		active = 0;
+ 		self.empty = true;
+ 		self:Skin(2);
+-		--if (self.HasRD) then StarGate.WireRD.OnRemove(self,true) end;
+ 		self:AddResource("energy",0);
+ 		self.Connected = false;
+ 	end
+diff --git a/lua/entities/zpmmk3.lua b/lua/entities/zpmmk3.lua
+index 26043b2..31c4d52 100644
+--- a/lua/entities/zpmmk3.lua
++++ b/lua/entities/zpmmk3.lua
+@@ -138,7 +138,6 @@ function ENT:Think()
+ 		active = 0;
+ 		self.empty = true;
+ 		self:Skin(2);
+-		--if (self.HasRD) then StarGate.WireRD.OnRemove(self,true) end;
+ 		self:AddResource("energy",0);
+ 		self.Connected = false;
+ 	end
+diff --git a/lua/expadv/components/custom/stargate.lua b/lua/expadv/components/custom/stargate.lua
+index fb40756..29d42aa 100644
+--- a/lua/expadv/components/custom/stargate.lua
++++ b/lua/expadv/components/custom/stargate.lua
+@@ -391,10 +391,10 @@ Component:AddFunctionHelper( "stargateUnstable", "wl:", "Returns EH unstable sta
+ 
+ Component:AddVMFunction( "stargateGetRingAngle", "e:", "n",function( Context, Trace, Entity )
+ 	if not IsValid(Entity) or not Entity.IsStargate or not EXPADV.PPCheck(Context,Entity) then return -1 end
+-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
++	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
+ 	local class = Entity:GetClass();
+ 	if (not table.HasValue(vg,class)) then return -1 end
+-	if (class=="stargate_universe") then
++	if (class=="sg_universe") then
+ 		if (IsValid(Entity.Gate)) then
+ 			local angle = tonumber(math.NormalizeAngle(Entity.Gate:GetLocalAngles().r));
+ 			if (angle<0) then angle = angle+360; end;
+@@ -414,10 +414,10 @@ Component:AddFunctionHelper( "stargateGetRingAngle", "e:", "Returns stargate rin
+ 
+ Component:AddVMFunction( "stargateGetRingAngle", "wl:", "n", function( Context, Trace, Entity )
+ 	if not IsValid(Entity) or not Entity.IsStargate then return -1 end
+-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
++	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
+ 	local class = Entity:GetClass();
+ 	if (not table.HasValue(vg,class)) then return -1 end
+-	if (class=="stargate_universe") then
++	if (class=="sg_universe") then
+ 		if (IsValid(Entity.Gate)) then
+ 			local angle = tonumber(math.NormalizeAngle(Entity.Gate:GetLocalAngles().r));
+ 			if (angle<0) then angle = angle+360; end;
+@@ -482,7 +482,7 @@ Component:AddVMFunction( "stargateOverloadTime", "e:", "n",function( Context, Tr
+ 	if (Entity.excessPower==nil or Entity.excessPowerLimit==nil or not IsValid(Entity.overloader)) then return -1; end
+ 	local energyRequired = Entity.excessPowerLimit - Entity.excessPower;
+ 	local timeLeft = (energyRequired / Entity.overloader.energyPerSecond)
+-	if(StarGate.IsIrisClosed(Entity)) then
++	if(Entity:IsIrisClosed()) then
+ 		timeLeft = timeLeft * 2;
+ 	end
+ 	if (Entity.isOverloading) then
+@@ -502,7 +502,7 @@ Component:AddVMFunction( "stargateOverloadTime", "wl:", "n", function( Context,
+ 	if (Entity.excessPower==nil or Entity.excessPowerLimit==nil or not IsValid(Entity.overloader)) then return -1; end
+ 	local energyRequired = Entity.excessPowerLimit - Entity.excessPower;
+ 	local timeLeft = (energyRequired / Entity.overloader.energyPerSecond)
+-	if(StarGate.IsIrisClosed(Entity)) then
++	if(Entity:IsIrisClosed()) then
+ 		timeLeft = timeLeft * 2;
+ 	end
+ 	if (Entity.isOverloading) then
+@@ -694,16 +694,16 @@ Component:AddFunctionHelper( "stargateAddressList", "wl:", "Returns stargate add
+ 
+ Component:AddPreparedFunction( "stargateRandomAddress", "e:n", "",
+ [[
+-if IsValid(@value 1) and @value 1.IsStargate and @value 1:CAP_CanModify(Context.player) and StarGate and StarGate.RandomGateName and EXPADV.PPCheck(Context,@value 1) then 
+-	$StarGate.RandomGateName(nil,@value 1,nil,true,@value 2)
++if IsValid(@value 1) and @value 1.IsStargate and @value 1:CAP_CanModify(Context.player) and EXPADV.PPCheck(Context,@value 1) then
++	$Lib.RandomGatesName(nil,@value 1,nil,true,@value 2)
+ end
+ ]])
+ Component:AddFunctionHelper( "stargateRandomAddress", "e:n", "Sets random stargate address." )
+ 
+ Component:AddPreparedFunction( "stargateRandomAddress", "wl:n", "",
+ [[
+-if IsValid(@value 1) and @value 1.IsStargate and @value 1:CAP_CanModify(Context.player) and StarGate and StarGate.RandomGateName then
+-	$StarGate.RandomGateName(nil,@value 1,nil,true,@value 2)
++if IsValid(@value 1) and @value 1.IsStargate and @value 1:CAP_CanModify(Context.player) then
++	$Lib.RandomGatesName(nil,@value 1,nil,true,@value 2)
+ end
+ ]])
+ Component:AddFunctionHelper( "stargateRandomAddress", "wl:n", "Sets random stargate address." )
+@@ -741,21 +741,6 @@ if IsValid(@value 1) and @value 1.IsStargate then
+ end
+ ]], "@result" )
+ Component:AddFunctionHelper( "stargateTransferResource", "wl:s,n", "Transfer resource between two connected stargates. Use negative value to retrieve resource. Can transfer only to dialled gate (not from). Returns transferred amount of resource if successful." )
+---[[
+-Component:AddVMFunction( "stargateRandomAddress", "e:n", "", function( Context, Trace, Entity, Bool )
+-	if IsValid(Entity) and @value 1.IsStargate and Entity:CAP_CanModify(Context.player) and StarGate and StarGate.RandomGateName and EXPADV.PPCheck(Context,Entity) then 
+-		StagGate.RandomGateName(nil,@value 1,nil,true,Bool)
+-	end
+-end)
+-Component:AddFunctionHelper( "stargateRandomAddress", "e:n", "Sets random stargate address." )
+-
+-Component:AddVMFunction( "stargateRandomAddress", "wl:n", "", function( Context, Trace, Entity, Bool )
+-	if IsValid(Entity) and @value 1.IsStargate and Entity:CAP_CanModify(Context.player) and StarGate and StarGate.RandomGateName and EXPADV.PPCheck(Context,Entity) then 
+-		StagGate.RandomGateName(nil,@value 1,nil,true,Bool)
+-	end
+-end)
+-Component:AddFunctionHelper( "stargateRandomAddress", "wl:n", "Sets random stargate address." )
+-]]--
+ -------------------------------------------------------------------------
+ Component:AddInlineFunction( "stargateSystemType", "", "n","$GetConVar(\"stargate_group_system\"):GetBool() and 1 or 0")
+ Component:AddFunctionHelper( "stargateSystemType", "", "Returns type of used stargate system." )
+diff --git a/lua/starfall/libs_sv/stargate.lua b/lua/starfall/libs_sv/stargate.lua
+index 4bb0d46..6793b54 100644
+--- a/lua/starfall/libs_sv/stargate.lua
++++ b/lua/starfall/libs_sv/stargate.lua
+@@ -161,10 +161,10 @@ function ents_methods:stargateGetRingAngle()
+ 	local this = unwrap( self )
+ 	if not canModify(SF.instance.player,this) then return false, "Insufficient permissions" end
+ 	if not this.IsStargate then return false, "entity is not stargate" end
+-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
++	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
+ 	local class = this:GetClass();
+ 	if (not table.HasValue(vg,class)) then return false, "Stargate should be sg1, movie, infinity or universe class" end
+-	if (class=="stargate_universe") then
++	if (class=="sg_universe") then
+ 		if (IsValid(this.Gate)) then
+ 			local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
+ 			if (angle<0) then angle = angle+360; end;
+@@ -224,7 +224,7 @@ function ents_methods:stargateOverloadTime()
+ 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return false; end
+ 	local energyRequired = this.excessPowerLimit - this.excessPower;
+ 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
+-	if(StarGate.IsIrisClosed(this)) then
++	if(this:IsIrisClosed()) then
+ 		timeLeft = timeLeft * 2;
+ 	end
+ 	if (this.isOverloading) then
+@@ -324,7 +324,7 @@ function ents_methods:stargateRandomAddress(mode)
+ 	local this = unwrap( self )
+ 	if not this.IsStargate then return false, "entity is not stargate" end
+ 	if not canModify(SF.instance.player,this) or not this:CAP_CanModify(SF.instance.player) then return false, "Insufficient permissions" end
+-	StarGate.RandomGateName(nil,this,nil,true,mode);
++	Lib.RandomGatesName(nil,this,nil,true,mode);
+ end
+ 
+ function ents_methods:stargateTransferEnergy(value)
+@@ -662,10 +662,10 @@ function wirelink_methods:stargateGetRingAngle()
+ 	local this = unwrap( self )
+ 	if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.read" ) then return false, "Insufficient permissions" end
+ 	if not this.IsStargate then return false, "entity is not stargate" end
+-	local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
++	local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
+ 	local class = this:GetClass();
+ 	if (not table.HasValue(vg,class)) then return false, "Stargate should be sg1, movie, infinity or universe class" end
+-	if (class=="stargate_universe") then
++	if (class=="sg_universe") then
+ 		if (IsValid(this.Gate)) then
+ 			local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
+ 			if (angle<0) then angle = angle+360; end;
+@@ -725,7 +725,7 @@ function wirelink_methods:stargateOverloadTime()
+ 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return false; end
+ 	local energyRequired = this.excessPowerLimit - this.excessPower;
+ 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
+-	if(StarGate.IsIrisClosed(this)) then
++	if(this:IsIrisClosed()) then
+ 		timeLeft = timeLeft * 2;
+ 	end
+ 	if (this.isOverloading) then
+@@ -825,7 +825,7 @@ function wirelink_methods:stargateRandomAddress(mode)
+ 	local this = unwrap( self )
+ 	if not this.IsStargate then return false, "entity is not stargate" end
+ 	if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.write" ) or not this:CAP_CanModify(SF.instance.player) then return false, "Insufficient permissions" end
+-	StarGate.RandomGateName(nil,this,nil,true,mode);
++	Lib.RandomGatesName(nil,this,nil,true,mode);
+ end
+ 
+ function wirelink_methods:stargateTransferEnergy(value)
+diff --git a/lua/wire/gates/stargate.lua b/lua/wire/gates/stargate.lua
+index e6ccd8d..ff4af0f 100644
+--- a/lua/wire/gates/stargate.lua
++++ b/lua/wire/gates/stargate.lua
+@@ -233,7 +233,7 @@ GateActions["OverloadTime"] = {
+ 			if (Ent.excessPower==nil or Ent.excessPowerLimit==nil or not IsValid(Ent.overloader)) then return -1; end
+ 			local energyRequired = Ent.excessPowerLimit - Ent.excessPower;
+ 			local timeLeft = (energyRequired / Ent.overloader.energyPerSecond)
+-			if(StarGate.IsIrisClosed(Ent)) then
++			if(Ent:IsIrisClosed()) then
+ 				timeLeft = timeLeft * 2;
+ 			end
+ 			if (Ent.isOverloading) then
+@@ -577,10 +577,10 @@ GateActions["GetRingAngle"] = {
+ 	timed = true,
+ 	output = function(gate, Ent)
+ 		if not IsValid(Ent) or not Ent.IsStargate then return -1 end
+-		local vg = {"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe"};
++		local vg = {"sg_movie","sg_sg1","sg_infinity","sg_universe"};
+ 		local class = Ent:GetClass();
+ 		if (not table.HasValue(vg,class)) then return -1 end
+-		if (class=="stargate_universe") then
++		if (class=="sg_universe") then
+ 			if (IsValid(Ent.Gate)) then
+ 				local angle = tonumber(math.NormalizeAngle(Ent.Gate:GetLocalAngles().r));
+ 				if (angle<0) then angle = angle+360; end;

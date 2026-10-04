@@ -1397,6 +1397,12 @@ function ENT:GetIris()
 	return NULL;
 end
 
+-- Native EAP replacement for CAP's StarGate.IsIrisClosed(gate)
+function ENT:IsIrisClosed()
+	local iris = self:GetIris();
+	return IsValid(iris) and iris.IsActivated or false;
+end
+
 -- for e2 lib by AlexALX
 function ENT:IrisToggle()
 	local iris = self:GetIris();
