@@ -233,7 +233,7 @@ GateActions["OverloadTime"] = {
 			if (Ent.excessPower==nil or Ent.excessPowerLimit==nil or not IsValid(Ent.overloader)) then return -1; end
 			local energyRequired = Ent.excessPowerLimit - Ent.excessPower;
 			local timeLeft = (energyRequired / Ent.overloader.energyPerSecond)
-			if(Ent:IsIrisClosed()) then
+			if(Lib.IsIrisClosed(Ent)) then
 				timeLeft = timeLeft * 2;
 			end
 			if (Ent.isOverloading) then

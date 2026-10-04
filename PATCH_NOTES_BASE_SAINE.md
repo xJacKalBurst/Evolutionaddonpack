@@ -83,36 +83,36 @@ déjà utilisée ailleurs dans `eventhorizon/init.lua` et `sg_base/shared.lua`).
 ## 4. `stargateOverloadTime()` : le bonus "iris fermé = surcharge x2" est recréé nativement
 
 C'est le point que tu as soulevé : plutôt que de supprimer ce bonus (ce que
-je proposais initialement, faute d'équivalent EAP), j'ai ajouté une vraie
-fonction native à EAP pour le préserver.
+je proposais initialement, faute d'équivalent EAP), je l'ai préservé en le
+branchant sur du code natif d'EAP.
 
-En creusant dans `sg_base/modules/lib.lua`, j'ai trouvé que chaque stargate
-dispose déjà de `self:GetIris()` (cherche l'entité iris la plus proche
-posée sur elle - utilisée par le menu VGUI et par e2 pour `IrisToggle()`),
-et que les deux entités iris d'EAP (`sg_iris`, `goauldiris`) exposent toutes
-les deux un champ `self.IsActivated` (vrai quand l'iris est fermé). Tout ce
-qui manquait, c'est la fonction qui combine les deux - je l'ai ajoutée juste
-à côté de `GetIris()` :
+Première passe, j'avais ajouté une nouvelle méthode `ENT:IsIrisClosed()`
+dans `sg_base/modules/lib.lua`. En revérifiant ensuite tout le dépôt (tu
+avais raison de demander qu'on vérifie les redondances), j'ai trouvé qu'EAP
+a **déjà** une fonction native pour ça, `Lib.IsIrisClosed(gate)`, utilisée
+tel quel dans 5 autres fichiers d'EAP (`asuran_gateweapon.lua`,
+`gates_overloader.lua` x3, `energetic_laser.lua`, `energy_beams.lua`) :
 
 ```lua
--- Native EAP replacement for CAP's StarGate.IsIrisClosed(gate)
-function ENT:IsIrisClosed()
-	local iris = self:GetIris();
-	return IsValid(iris) and iris.IsActivated or false;
+-- lua/eap_librairies/server/general.lua
+function Lib.IsIrisClosed(gate)
+   return gate.irisclosed == true || (gate.IsBlocked && gate:IsBlocked(true) == true)
 end
 ```
 
-Et j'ai remis le bonus x2 dans les 4 moteurs de script, maintenant branché
-sur cette fonction native (`this:IsIrisClosed()` / `Entity:IsIrisClosed()` /
-`Ent:IsIrisClosed()` selon le fichier) au lieu de `StarGate.IsIrisClosed(...)` :
+Elle s'appuie sur `gate:IsBlocked(true)`, une méthode déjà existante sur
+`sg_base` qui cherche une entité iris proche et vérifie si elle est activée.
+J'ai donc supprimé ma méthode ajoutée (doublon inutile) et branché les 4
+moteurs de script directement sur cette fonction native existante,
+`Lib.IsIrisClosed(gate)`, au lieu de `StarGate.IsIrisClosed(...)` :
 - `lua/entities/gmod_wire_expression2/core/custom/stargate.lua` (E2, 2 occurrences)
 - `lua/expadv/components/custom/stargate.lua` (ExpAdv2, 2 occurrences)
 - `lua/wire/gates/stargate.lua` (Wire Gates, 1 occurrence)
 - `lua/starfall/libs_sv/stargate.lua` (Starfall, 2 occurrences)
 
-Résultat : comportement identique à avant (y compris avec le CAP installé,
-puisque `GetIris()` trouve n'importe quelle entité avec `IsIris=true`, CAP ou
-EAP), mais sans aucune dépendance à une table globale du CAP.
+Résultat : zéro code ajouté, juste 7 appels redirigés vers une fonction
+native déjà en place et déjà testée ailleurs dans EAP - plus cohérent avec
+le reste du dépôt que ma première version.
 
 ---
 

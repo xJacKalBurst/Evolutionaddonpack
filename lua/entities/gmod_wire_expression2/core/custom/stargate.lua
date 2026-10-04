@@ -537,7 +537,7 @@ e2function number entity:stargateOverloadTime()
 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return -1; end
 	local energyRequired = this.excessPowerLimit - this.excessPower;
 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
-	if(this:IsIrisClosed()) then
+	if(Lib.IsIrisClosed(this)) then
 		timeLeft = timeLeft * 2;
 	end
 	if (this.isOverloading) then
@@ -556,7 +556,7 @@ e2function number wirelink:stargateOverloadTime()
 	if (this.excessPower==nil or this.excessPowerLimit==nil or not IsValid(this.overloader)) then return -1; end
 	local energyRequired = this.excessPowerLimit - this.excessPower;
 	local timeLeft = (energyRequired / this.overloader.energyPerSecond)
-	if(this:IsIrisClosed()) then
+	if(Lib.IsIrisClosed(this)) then
 		timeLeft = timeLeft * 2;
 	end
 	if (this.isOverloading) then

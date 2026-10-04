@@ -482,7 +482,7 @@ Component:AddVMFunction( "stargateOverloadTime", "e:", "n",function( Context, Tr
 	if (Entity.excessPower==nil or Entity.excessPowerLimit==nil or not IsValid(Entity.overloader)) then return -1; end
 	local energyRequired = Entity.excessPowerLimit - Entity.excessPower;
 	local timeLeft = (energyRequired / Entity.overloader.energyPerSecond)
-	if(Entity:IsIrisClosed()) then
+	if(Lib.IsIrisClosed(Entity)) then
 		timeLeft = timeLeft * 2;
 	end
 	if (Entity.isOverloading) then
@@ -502,7 +502,7 @@ Component:AddVMFunction( "stargateOverloadTime", "wl:", "n", function( Context, 
 	if (Entity.excessPower==nil or Entity.excessPowerLimit==nil or not IsValid(Entity.overloader)) then return -1; end
 	local energyRequired = Entity.excessPowerLimit - Entity.excessPower;
 	local timeLeft = (energyRequired / Entity.overloader.energyPerSecond)
-	if(Entity:IsIrisClosed()) then
+	if(Lib.IsIrisClosed(Entity)) then
 		timeLeft = timeLeft * 2;
 	end
 	if (Entity.isOverloading) then
