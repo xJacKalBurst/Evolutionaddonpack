@@ -182,6 +182,8 @@ function EAP.Compat.InstallFindByClassBridge()
 	end
 end
 
+MsgN("[EAP Compat] shared/init.lua file loaded (Lib.IsCapDetected right now = "..tostring(Lib.IsCapDetected)..")");
+
 -- Install immediately if CAP is already known to be present (shared/init.lua
 -- runs EAP.IsCapDetected() on PlayerInitialSpawn / at startup; this file is
 -- loaded after that detection in eap_include.lua, see below), and again on
@@ -189,9 +191,11 @@ end
 -- than this file loading.
 if (Lib.IsCapDetected) then
 	EAP.Compat.InstallFindByClassBridge();
+	MsgN("[EAP Compat] FindByClass bridge installed immediately (CAP already detected at file-load time).");
 end
 
 hook.Add("InitPostEntity", "EAPCompat_InstallFindByClassBridge", function()
+	MsgN("[EAP Compat] InitPostEntity fired for shared bridge (Lib.IsCapDetected = "..tostring(Lib.IsCapDetected)..")");
 	if (Lib.IsCapDetected) then
 		EAP.Compat.InstallFindByClassBridge();
 	end
