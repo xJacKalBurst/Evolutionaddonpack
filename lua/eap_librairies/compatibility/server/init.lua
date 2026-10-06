@@ -126,6 +126,41 @@ function EAP.Compat.WithSpoofedClass(ent, spoofedClass, fn, ...)
 	return unpack(results, 2);
 end
 
+-- Same call-scoped Entity-metatable technique, generalized: some of EAP's
+-- and CAP's own dialing functions (FindGate's Atlantis tie-break,
+-- WormHoleJump's Orlin/Supergate checks, the DHD's PressButton) don't test
+-- ONE already-known entity against ONE literal - they run their own
+-- internal ents.FindByClass() loop and GetClass()-compare MANY candidate
+-- entities at once. WithSpoofedClass doesn't fit that shape (it only knows
+-- about a single `ent`), so this version instead spoofs by CLASS: any
+-- entity whose real class is a key in `classMap` reports the mapped value
+-- instead, for the duration of fn(...). Passing the bridge's own
+-- CapToEap/EapToCap maps (already built in compatibility/shared/init.lua)
+-- means every gate-type pair this bridge has ever been told about is
+-- covered automatically, including stargate types no section of this file
+-- had to special-case by hand. Same cost/safety profile as WithSpoofedClass
+-- (temporary, call-scoped, synchronous, nested-safe save/restore) - see
+-- that function's header comment for the full risk discussion.
+function EAP.Compat.WithSpoofedClassFamilies(classMap, fn, ...)
+	local entMeta = FindMetaTable("Entity");
+	local previousGetClass = entMeta.GetClass;
+
+	entMeta.GetClass = function(self)
+		local real = previousGetClass(self);
+		return classMap[real] or real;
+	end
+
+	local results = { pcall(fn, ...) };
+
+	entMeta.GetClass = previousGetClass;
+
+	if (not results[1]) then
+		error(results[2], 0);
+	end
+
+	return unpack(results, 2);
+end
+
 -- ===========================================================================
 -- 2. Static data-table extension helpers
 -- ===========================================================================
@@ -750,7 +785,101 @@ function EAP.Compat.PatchGateSpawnerRestoredBroadcast()
 end
 
 -- ===========================================================================
--- 8. Install everything
+-- 8. Cross-addon gate-type recognition (dialing/activation)
+-- ===========================================================================
+-- sg_base and stargate_base are near-line-for-line forks of the same
+-- original code: the core dial/link/open sequence (FindGate locating the
+-- target entity, self.Target <-> target.Target, ActivateStargate, the
+-- event horizon) works cross-addon already - plain Lua field writes and
+-- identically-named methods, nothing to patch. What's left are a handful
+-- of places where that shared code asks "is THIS CANDIDATE GATE a
+-- supergate/Orlin/Atlantis/etc." by comparing GetClass() to ONE addon's
+-- own literal, so a candidate from the OTHER addon silently fails the
+-- check:
+--   - GetAllGates() (modules/lib.lua): supergates get sorted into the
+--     wrong bucket during address resolution if the candidate is the
+--     other addon's supergate class. Fixed by reimplementing this one
+--     (short, simple) using the already-correct .IsSupergate flag instead
+--     of a class-literal compare - true in both addons for their own
+--     supergate type (sg_supergate/shared.lua, stargate_supergate/shared.lua).
+--   - WormHoleJump() (modules/lib.lua): Orlin exclusion and supergate
+--     light-up/sequence choice, when the jump TARGET is the other addon's
+--     gate.
+--   - FindGate()/FindGateGalaxy() (modules/lib.lua): the "prefer an
+--     Atlantis gate among several address matches" tie-break, when one of
+--     the matches is the other addon's Atlantis gate.
+--   - PressButton() (dhdbase/dhd_base init.lua): random-dial's Universe
+--     guard, the Orlin-already-open guard, and the ring-rotation visual
+--     sync, all keyed off the DHD's currently locked gate's class.
+-- These last three are large, complex functions - reimplementing them
+-- here would freeze a copy that stops tracking future EAP/CAP updates
+-- (the same "loses dynamism" trade-off discussed for the stools earlier
+-- in this project). Instead we wrap just their entry point with
+-- WithSpoofedClassFamilies (section 1): for the duration of the real
+-- call, every candidate entity of a class the bridge already knows about
+-- reports its opposite-addon equivalent class, so the real function's own
+-- GetClass()==literal checks inside just work, unmodified and uncopied.
+
+function EAP.Compat.PatchGetAllGatesSupergate()
+	local eapStored = scripted_ents.GetStored("sg_base");
+	local capStored = scripted_ents.GetStored("stargate_base");
+	if (not eapStored or not eapStored.t or not capStored or not capStored.t) then
+		MsgN("[EAP Compat] WARNING: couldn't find 'sg_base' and/or 'stargate_base' to fix GetAllGates() - were they really registered yet?");
+		return;
+	end
+	if (eapStored.t.EAPCompatGetAllGatesPatched) then return end
+
+	local function FixedGetAllGates(self, closed)
+		local sg = {};
+		local selfIsSuper = self.Entity.IsSupergate or false;
+		for _, v in pairs(ents.FindByClass("sg_*")) do -- bridged: also returns CAP's stargate_*
+			if (v.IsStargate and not (closed and (v.IsOpen or v.Dialling))) then
+				if ((v.IsSupergate or false) == selfIsSuper) then
+					table.insert(sg, v);
+				end
+			end
+		end
+		return sg;
+	end
+
+	eapStored.t.GetAllGates = FixedGetAllGates;
+	capStored.t.GetAllGates = FixedGetAllGates; -- ents.FindByClass("sg_*")/("stargate_*") are both bridged to the same merged result, so one implementation serves both addons
+	eapStored.t.EAPCompatGetAllGatesPatched = true;
+	capStored.t.EAPCompatGetAllGatesPatched = true;
+end
+
+function EAP.Compat.PatchGateTypeAwareDialing()
+	local eapStored = scripted_ents.GetStored("sg_base");
+	local capStored = scripted_ents.GetStored("stargate_base");
+	local eapDhdStored = scripted_ents.GetStored("dhdbase");
+	local capDhdStored = scripted_ents.GetStored("dhd_base");
+	if (not eapStored or not eapStored.t or not capStored or not capStored.t or not eapDhdStored or not eapDhdStored.t or not capDhdStored or not capDhdStored.t) then
+		MsgN("[EAP Compat] WARNING: couldn't find sg_base/stargate_base/dhdbase/dhd_base to patch gate-type-aware dialing - were they really registered yet?");
+		return;
+	end
+	if (eapStored.t.EAPCompatDialingPatched) then return end
+
+	local function WrapWithFamilies(stored, methodName, classMap)
+		local RealFn = stored.t[methodName];
+		if (not RealFn) then return end
+		stored.t[methodName] = function(self, ...)
+			return EAP.Compat.WithSpoofedClassFamilies(classMap, RealFn, self, ...);
+		end
+	end
+
+	for _, methodName in ipairs({ "WormHoleJump", "FindGate", "FindGateGalaxy" }) do
+		WrapWithFamilies(eapStored, methodName, CAP_TO_EAP);
+		WrapWithFamilies(capStored, methodName, EAP_TO_CAP);
+	end
+
+	WrapWithFamilies(eapDhdStored, "PressButton", CAP_TO_EAP);
+	WrapWithFamilies(capDhdStored, "PressButton", EAP_TO_CAP);
+
+	eapStored.t.EAPCompatDialingPatched = true;
+end
+
+-- ===========================================================================
+-- 9. Install everything
 -- ===========================================================================
 
 function EAP.Compat.InstallServerPatches()
@@ -811,6 +940,13 @@ function EAP.Compat.InstallServerPatches()
 	-- format).
 	EAP.Compat.PatchGateAddressBroadcast();
 	EAP.Compat.PatchGateSpawnerRestoredBroadcast();
+
+	-- Dialing/activation: make the supergate/Orlin/Atlantis/etc. special
+	-- cases inside GetAllGates/WormHoleJump/FindGate/FindGateGalaxy/
+	-- PressButton recognize the other addon's gate types too (see
+	-- section 8's header comment).
+	EAP.Compat.PatchGetAllGatesSupergate();
+	EAP.Compat.PatchGateTypeAwareDialing();
 end
 
 -- Unlike shared/init.lua's ents.FindByClass wrap (which only touches a
