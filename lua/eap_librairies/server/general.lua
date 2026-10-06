@@ -785,3 +785,82 @@ function Lib.RandomGatesName(ply,ent,count,wire,mode)
     end
 end
 hook.Add( "PlayerSpawnedSENT", "RandomGatesName", Lib.RandomGatesName );
+
+--################# EAP's own entity spawn function, used by the EAP spawn tab ("eap_spawnsent")
+-- The stock sandbox "gm_spawnsent" calls TryFixPropPosition() right after ENT:SpawnFunction(), which pushes
+-- anything partly inside the world out of it. Gates are deliberately spawned slightly sunk into the ground
+-- (see ENT:SpawnFunction), so the stock one lifts them ~50 units. This function does the same job as the
+-- stock one (checks, SpawnFunction, hooks, undo, cleanup) but without that repositioning.
+-- Is this class registered in the EAP spawn list (and spawnable through its own SpawnFunction)?
+function Lib.IsEAPSpawnable(EntityName)
+	if (EntityName == nil) then return false end
+	local found = false;
+	for _,v in pairs(list.Get("EAP") or {}) do
+		if (v.ClassName == EntityName) then found = true; break; end
+	end
+	if (not found) then return false end
+	local sent = scripted_ents.GetStored(EntityName);
+	return (sent and sent.t and sent.t.SpawnFunction) and true or false;
+end
+
+function EAP_Spawn_SENT(ply, EntityName, tr)
+	if (EntityName == nil or not IsValid(ply)) then return end
+
+	-- Only entities registered in the EAP spawn list can be spawned through this
+	if (not Lib.IsEAPSpawnable(EntityName)) then
+		-- Not ours (or no SpawnFunction): let the stock function handle it
+		local stock = Lib.StockSpawn_SENT or Spawn_SENT;
+		if (stock) then stock(ply, EntityName, tr); end
+		return;
+	end
+
+	local sent = scripted_ents.GetStored(EntityName).t;
+
+	if (sent.AdminOnly and not ply:IsAdmin()) then return end
+
+	-- Ask the gamemode if it's ok to spawn this
+	if (not gamemode.Call("PlayerSpawnSENT", ply, EntityName)) then return end
+
+	if (not tr) then
+		tr = util.TraceLine({
+			start = ply:EyePos(),
+			endpos = ply:EyePos()+(ply:GetAimVector()*4096),
+			filter = ply,
+		});
+	end
+
+	ClassName = EntityName;
+	local entity = sent:SpawnFunction(ply, tr, EntityName);
+	ClassName = nil;
+
+	if (not IsValid(entity)) then return end
+
+	gamemode.Call("PlayerSpawnedSENT", ply, entity);
+
+	undo.Create("SENT");
+		undo.SetPlayer(ply);
+		undo.AddEntity(entity);
+		if (sent.PrintName) then
+			undo.SetCustomUndoText("Undone "..sent.PrintName);
+		end
+	undo.Finish("Scripted Entity ("..tostring(EntityName)..")");
+
+	ply:AddCleanup("sents", entity);
+	entity:SetVar("Player", ply);
+end
+concommand.Add("eap_spawnsent", function(ply, cmd, args) EAP_Spawn_SENT(ply, args[1]); end);
+
+--################# Route the stock spawn entry points through EAP_Spawn_SENT for EAP entities
+-- "gm_spawnsent" (favorites, Entities tab, console) and the "creator" toolgun both call the global
+-- Spawn_SENT, which would lift gates out of the ground (see above). Other classes keep the stock behaviour.
+-- Done in "Initialize" because the sandbox gamemode defines Spawn_SENT after the autorun files.
+hook.Add("Initialize", "EAP.SpawnSENTRouting", function()
+	if (Lib.StockSpawn_SENT or not isfunction(Spawn_SENT)) then return end
+	Lib.StockSpawn_SENT = Spawn_SENT;
+	Spawn_SENT = function(ply, EntityName, tr)
+		if (IsValid(ply) and Lib.IsEAPSpawnable(EntityName)) then
+			return EAP_Spawn_SENT(ply, EntityName, tr);
+		end
+		return Lib.StockSpawn_SENT(ply, EntityName, tr);
+	end
+end);
