@@ -879,7 +879,83 @@ function EAP.Compat.PatchGateTypeAwareDialing()
 end
 
 -- ===========================================================================
--- 9. Install everything
+-- 9. Cross-addon slow-dial synchronisation (action-timer pause routing)
+-- ===========================================================================
+-- Slow dialing started from the dialing UI (gate/DHD menu) makes the SOURCE
+-- gate's own dial sequence pause, then resume, the DESTINATION gate's
+-- pending "open" sequence so both event horizons open together:
+--
+--     action:Add({ f = self.PauseActions, v = { t, false, true }, d = 0 })
+--     ...
+--     action:Add({ f = self.PauseActions, v = { t, true,  true }, d = 0 })
+--
+-- Note what that really is: the SOURCE gate's PauseActions *function*,
+-- called with the DESTINATION gate (t) as its "self". PauseActions finds
+-- the timers to (un)pause by name, and that name is built from an
+-- addon-specific prefix hard-coded in the function ("StarGate_<idx>_<n>"
+-- in CAP, "Lib_<idx>_<n>" in EAP - the same prefix RunActions/StopActions
+-- use to create/remove them). Between two gates of the SAME addon this is
+-- harmless; across addons the source looks for timers named with ITS OWN
+-- prefix, finds none of the destination's (named with the other prefix),
+-- and silently pauses nothing - so the destination just runs its
+-- "inbound slow dial" sequence unpaused and opens (event horizon)
+-- immediately, while the source is still dialing chevron by chevron.
+-- Dialing from a DHD button by button never goes through that pause
+-- (nothing is pre-queued on the destination), and Atlantis/Pegasus never
+-- pauses the destination - which matches what is observed in game.
+--
+-- Fix: route PauseActions to the function of the addon the entity being
+-- (un)paused really belongs to. Both original function bodies are kept and
+-- still do all the real work, so changes upstream stay picked up
+-- automatically.
+
+function EAP.Compat.PatchGateActionPause()
+	local eapStored = scripted_ents.GetStored("sg_base");
+	local capStored = scripted_ents.GetStored("stargate_base");
+	if (not eapStored or not eapStored.t or not capStored or not capStored.t) then
+		MsgN("[EAP Compat] WARNING: couldn't find 'sg_base' and/or 'stargate_base' to route PauseActions - were they really registered yet?");
+		return;
+	end
+	if (eapStored.t.EAPCompatPauseActionsPatched) then return end
+
+	local EapPauseActions = eapStored.t.PauseActions;
+	local CapPauseActions = capStored.t.PauseActions;
+	if (not EapPauseActions or not CapPauseActions) then
+		MsgN("[EAP Compat] WARNING: sg_base and/or stargate_base have no PauseActions - nothing to route.");
+		return;
+	end
+
+	-- NOTE: "self" is not always the entity itself. A gate pausing ITS OWN
+	-- timers (v = { self, false } in the dial sequences) passes the sequence
+	-- helper table, which only proxies to the gate through its .Entity
+	-- field, whereas pausing the DESTINATION gate passes the entity (t).
+	-- The original functions only ever use self.Entity, which works for
+	-- both - so resolve the real entity the same way before asking for its
+	-- class (calling GetClass() directly on that table is an error).
+	local function MakeRouter(OwnFn)
+		return function(self, ...)
+			local ent = self.Entity;
+			if (ent == nil) then ent = self; end
+			if (isentity(ent) and ent:IsValid()) then
+				local class = ent:GetClass();
+				if (string.sub(class, 1, 9) == "stargate_") then
+					return CapPauseActions(self, ...);
+				elseif (string.sub(class, 1, 3) == "sg_") then
+					return EapPauseActions(self, ...);
+				end
+			end
+			return OwnFn(self, ...);
+		end
+	end
+
+	eapStored.t.PauseActions = MakeRouter(EapPauseActions);
+	capStored.t.PauseActions = MakeRouter(CapPauseActions);
+	eapStored.t.EAPCompatPauseActionsPatched = true;
+	capStored.t.EAPCompatPauseActionsPatched = true;
+end
+
+-- ===========================================================================
+-- 10. Install everything
 -- ===========================================================================
 
 function EAP.Compat.InstallServerPatches()
@@ -947,6 +1023,11 @@ function EAP.Compat.InstallServerPatches()
 	-- section 8's header comment).
 	EAP.Compat.PatchGetAllGatesSupergate();
 	EAP.Compat.PatchGateTypeAwareDialing();
+
+	-- Slow dial started from the dialing UI: make the source gate's pause of
+	-- the destination gate's pending sequence also work across addons (see
+	-- section 9's header comment).
+	EAP.Compat.PatchGateActionPause();
 end
 
 -- Unlike shared/init.lua's ents.FindByClass wrap (which only touches a
