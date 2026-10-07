@@ -1193,10 +1193,10 @@ function BUFFER:StartTouch(EventHorizon,e)
 	if(attached) then
 		for _,v in pairs(attached.Attached) do
 			if (IsValid(v)) then
+				local phys = v:GetPhysicsObject();
 				if(IsValid(phys) and v:GetSolid()!=SOLID_NONE) then
 					v.dir = e.dir
 					v:SetNWInt("PhysBufferedDir",e.dir);
-					local phys = v:GetPhysicsObject();
 					EventHorizon.GravBuffer[v:EntIndex()] = phys:IsGravityEnabled();
 					phys:EnableGravity(false);
 				end
@@ -1204,6 +1204,7 @@ function BUFFER:StartTouch(EventHorizon,e)
 		end
 	end
 
+	if(not IsValid(e:GetPhysicsObject())) then return end; -- Nothing to constrain
 	e.EventHorizonNoCollide = ents.Create("phys_ragdollconstraint");
 	e.EventHorizonNoCollide:SetKeyValue("spawnflags",3);
 	for _,v in pairs(MaxValue) do

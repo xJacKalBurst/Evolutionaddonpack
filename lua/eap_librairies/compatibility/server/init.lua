@@ -443,18 +443,25 @@ end
 -- same as the rest of this file), and overwrite just that one entry with a
 -- version that recognizes both class families - entirely from this file,
 -- no new file added anywhere in CAP's, Wire's, ExpAdv2's or Starfall's own
--- folders. An earlier version of this fix mistakenly shipped new files
--- inside those addons' own "custom"/"gates"/"libs_sv" extension folders -
--- functionally equivalent, but a needless departure from "nothing outside
--- this file reaches into another addon's structure". Replaced by this.
+-- folders.
 
 local MERGED_RING_ANGLE_CLASSES = {
-	"sg_movie","sg_sg1","sg_infinity","sg_universe",
-	"stargate_movie","stargate_sg1","stargate_infinity","stargate_universe",
+	sg_movie = true, sg_sg1 = true, sg_infinity = true, sg_universe = true,
+	stargate_movie = true, stargate_sg1 = true, stargate_infinity = true, stargate_universe = true,
 };
 
-local function IsMergedUniverseClass(class)
-	return class == "sg_universe" or class == "stargate_universe";
+-- Shared implementation of stargateGetRingAngle() for every backend below.
+-- Returns the ring angle (0-360), or nil when the entity's class has no ring
+-- or the ring/gate part isn't available; each backend maps nil to its own
+-- failure value (-1 for E2/ExpAdv2/Wire, false for Starfall).
+local function GetMergedRingAngle(ent)
+	local class = ent:GetClass();
+	if (not MERGED_RING_ANGLE_CLASSES[class]) then return nil end
+	local part = (class == "sg_universe" or class == "stargate_universe") and ent.Gate or ent.Ring;
+	if (not IsValid(part)) then return nil end
+	local angle = tonumber(math.NormalizeAngle(part:GetLocalAngles().r));
+	if (angle < 0) then angle = angle + 360; end
+	return angle;
 end
 
 -- 6a. Expression 2: wire_expression2_funcs[signature][3] is the actual
@@ -468,22 +475,7 @@ function EAP.Compat.MergeE2StargateGetRingAngle()
 		entityEntry[3] = function(self, args)
 			local this = args[1];
 			if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return -1 end
-			if (not table.HasValue(MERGED_RING_ANGLE_CLASSES, this:GetClass())) then return -1 end
-			if (IsMergedUniverseClass(this:GetClass())) then
-				if (IsValid(this.Gate)) then
-					local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
-					if (angle<0) then angle = angle+360; end;
-					return angle;
-				end
-				return -1;
-			else
-				if (IsValid(this.Ring)) then
-					local angle = tonumber(math.NormalizeAngle(this.Ring:GetLocalAngles().r));
-					if (angle<0) then angle = angle+360; end;
-					return angle;
-				end
-				return -1;
-			end
+			return GetMergedRingAngle(this) or -1;
 		end
 	else
 		MsgN("[EAP Compat] WARNING: E2 function 'stargateGetRingAngle(e:)' not found to merge - was Wire/E2 loaded yet?");
@@ -494,22 +486,7 @@ function EAP.Compat.MergeE2StargateGetRingAngle()
 		wirelinkEntry[3] = function(self, args)
 			local this = args[1];
 			if not IsValid(this) or not this.IsStargate then return -1 end
-			if (not table.HasValue(MERGED_RING_ANGLE_CLASSES, this:GetClass())) then return -1 end
-			if (IsMergedUniverseClass(this:GetClass())) then
-				if (IsValid(this.Gate)) then
-					local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
-					if (angle<0) then angle = angle+360; end;
-					return angle;
-				end
-				return -1;
-			else
-				if (IsValid(this.Ring)) then
-					local angle = tonumber(math.NormalizeAngle(this.Ring:GetLocalAngles().r));
-					if (angle<0) then angle = angle+360; end;
-					return angle;
-				end
-				return -1;
-			end
+			return GetMergedRingAngle(this) or -1;
 		end
 	else
 		MsgN("[EAP Compat] WARNING: E2 function 'stargateGetRingAngle(xwl:)' not found to merge - was Wire/E2 loaded yet?");
@@ -524,25 +501,9 @@ function EAP.Compat.MergeWireGateGetRingAngle()
 		return;
 	end
 
-	local gate = GateActions["GetRingAngle"];
-	gate.output = function(gateself, Ent)
+	GateActions["GetRingAngle"].output = function(gateself, Ent)
 		if not IsValid(Ent) or not Ent.IsStargate then return -1 end
-		if (not table.HasValue(MERGED_RING_ANGLE_CLASSES, Ent:GetClass())) then return -1 end
-		if (IsMergedUniverseClass(Ent:GetClass())) then
-			if (IsValid(Ent.Gate)) then
-				local angle = tonumber(math.NormalizeAngle(Ent.Gate:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return -1;
-		else
-			if (IsValid(Ent.Ring)) then
-				local angle = tonumber(math.NormalizeAngle(Ent.Ring:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return -1;
-		end
+		return GetMergedRingAngle(Ent) or -1;
 	end
 end
 
@@ -560,50 +521,21 @@ function EAP.Compat.MergeExpAdv2StargateGetRingAngle()
 
 	Component:AddVMFunction( "stargateGetRingAngle", "e:", "n", function( Context, Trace, Entity )
 		if not IsValid(Entity) or not Entity.IsStargate or not EXPADV.PPCheck(Context,Entity) then return -1 end
-		if (not table.HasValue(MERGED_RING_ANGLE_CLASSES, Entity:GetClass())) then return -1 end
-		if (IsMergedUniverseClass(Entity:GetClass())) then
-			if (IsValid(Entity.Gate)) then
-				local angle = tonumber(math.NormalizeAngle(Entity.Gate:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return -1;
-		else
-			if (IsValid(Entity.Ring)) then
-				local angle = tonumber(math.NormalizeAngle(Entity.Ring:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return -1;
-		end
+		return GetMergedRingAngle(Entity) or -1;
 	end)
 	Component:AddFunctionHelper( "stargateGetRingAngle", "e:", "Returns stargate ring angle." )
 
 	Component:AddVMFunction( "stargateGetRingAngle", "wl:", "n", function( Context, Trace, Entity )
 		if not IsValid(Entity) or not Entity.IsStargate then return -1 end
-		if (not table.HasValue(MERGED_RING_ANGLE_CLASSES, Entity:GetClass())) then return -1 end
-		if (IsMergedUniverseClass(Entity:GetClass())) then
-			if (IsValid(Entity.Gate)) then
-				local angle = tonumber(math.NormalizeAngle(Entity.Gate:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return -1;
-		else
-			if (IsValid(Entity.Ring)) then
-				local angle = tonumber(math.NormalizeAngle(Entity.Ring:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return -1;
-		end
+		return GetMergedRingAngle(Entity) or -1;
 	end)
 	Component:AddFunctionHelper( "stargateGetRingAngle", "wl:", "Returns stargate ring angle." )
 end
 
--- 6d. Starfall: SF.Entities.Methods is the shared methods table both
--- addons' "starfall/libs_sv/stargate.lua" write stargateGetRingAngle()
--- into - reassigning it here overwrites it exactly the same way loading a
+-- 6d. Starfall: SF.Entities.Methods (entity variant) and SF.Wire.WlMethods
+-- (wirelink variant) are the shared methods tables both addons'
+-- "starfall/libs_sv/stargate.lua" write stargateGetRingAngle() into -
+-- reassigning them here overwrites them exactly the same way loading a
 -- second file would.
 function EAP.Compat.MergeStarfallStargateGetRingAngle()
 	if (not SF or not SF.Entities) then return end
@@ -626,23 +558,47 @@ function EAP.Compat.MergeStarfallStargateGetRingAngle()
 		local this = unwrap( self );
 		if not canModify(SF.instance.player,this) then return false, "Insufficient permissions" end
 		if not this.IsStargate then return false, "entity is not stargate" end
-		if (not table.HasValue(MERGED_RING_ANGLE_CLASSES, this:GetClass())) then return false, "Stargate should be sg1, movie, infinity or universe class" end
-		if (IsMergedUniverseClass(this:GetClass())) then
-			if (IsValid(this.Gate)) then
-				local angle = tonumber(math.NormalizeAngle(this.Gate:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return false;
-		else
-			if (IsValid(this.Ring)) then
-				local angle = tonumber(math.NormalizeAngle(this.Ring:GetLocalAngles().r));
-				if (angle<0) then angle = angle+360; end;
-				return angle;
-			end
-			return false;
+		if (not MERGED_RING_ANGLE_CLASSES[this:GetClass()]) then return false, "Stargate should be sg1, movie, infinity or universe class" end
+		return GetMergedRingAngle(this) or false;
+	end
+
+	-- Wirelink variant (was not merged before: only the entity variant was).
+	local wl_methods = SF.Wire and SF.Wire.WlMethods;
+	if (wl_methods and wl_methods.stargateGetRingAngle) then
+		local wl_metatable = SF.Wire.WlMetatable;
+		local wl_unwrap = SF.Wire.WlUnwrap;
+		wl_methods.stargateGetRingAngle = function(self)
+			SF.CheckType( self, wl_metatable );
+			local this = wl_unwrap( self );
+			if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.read" ) then return false, "Insufficient permissions" end
+			if not this.IsStargate then return false, "entity is not stargate" end
+			if (not MERGED_RING_ANGLE_CLASSES[this:GetClass()]) then return false, "Stargate should be sg1, movie, infinity or universe class" end
+			return GetMergedRingAngle(this) or false;
 		end
 	end
+end
+
+-- 6e. CAP's own sequences (stargate_base/modules/events.lua, DialFail and
+-- Shutdown, and the supergate's own dialling) queue stargate_supergate's
+-- DisActivateLights()/LightUp()/LightUps() with the *sequence table* as
+-- `self` instead of the gate entity, so the call dies on `self:EntIndex()`
+-- ("calling 'EntIndex' on bad self") and the rest of the package never runs. EAP's
+-- copy of that bug is fixed in its own sequences; for CAP we can't touch the files, so resolve the entity here.
+function EAP.Compat.PatchSupergateLightsSelf()
+	local stored = scripted_ents.GetStored("stargate_supergate");
+	if (not stored or not stored.t) then return end
+	if (stored.t.EAPCompatLightsSelfPatched) then return end
+	-- Same bug for the light effects queued by its dialling sequences.
+	for _, name in ipairs({ "DisActivateLights", "LightUp", "LightUps" }) do
+		local Real = stored.t[name];
+		if (Real) then
+			stored.t[name] = function(self, ...)
+				if (type(self) == "table" and IsValid(self.Entity)) then self = self.Entity; end
+				return Real(self, ...);
+			end
+		end
+	end
+	stored.t.EAPCompatLightsSelfPatched = true;
 end
 
 -- ===========================================================================
@@ -685,11 +641,15 @@ function EAP.Compat.PatchGateAddressBroadcast()
 	end
 	if (eapStored.t.EAPCompatAddressBridgePatched) then return end
 
-	local function ResendRefresh(netName, self, type, value, typ, pl)
+	-- The client dial menus filter gates by class literal (e.g. the supergate
+	-- menu only lists v.class == its own addon's supergate class), so the class
+	-- is sent translated into the receiving addon's namespace.
+	local function ResendRefresh(netName, classMap, self, type, value, typ, pl)
 		if (not IsValid(self.Entity)) then return end
+		local class = self.Entity:GetClass();
 		net.Start(netName);
 		net.WriteInt(self.Entity:EntIndex(), 16);
-		net.WriteString(self.Entity:GetClass());
+		net.WriteString(classMap[class] or class);
 		net.WriteBit(self.IsGroupStargate);
 		net.WriteString(type);
 		net.WriteString(typ or "");
@@ -711,7 +671,7 @@ function EAP.Compat.PatchGateAddressBroadcast()
 	if (RealEapRefresh) then
 		eapStored.t.RefreshGateList = function(self, type, value, typ, pl)
 			RealEapRefresh(self, type, value, typ, pl);
-			ResendRefresh("RefreshGateList", self, type, value, typ, pl); -- CAP's name
+			ResendRefresh("RefreshGateList", EAP_TO_CAP, self, type, value, typ, pl); -- CAP's name
 		end
 	end
 
@@ -719,7 +679,7 @@ function EAP.Compat.PatchGateAddressBroadcast()
 	if (RealCapRefresh) then
 		capStored.t.RefreshGateList = function(self, type, value, typ, pl)
 			RealCapRefresh(self, type, value, typ, pl);
-			ResendRefresh("RefreshGatesList", self, type, value, typ, pl); -- EAP's name
+			ResendRefresh("RefreshGatesList", CAP_TO_EAP, self, type, value, typ, pl); -- EAP's name
 		end
 	end
 
@@ -1023,6 +983,7 @@ function EAP.Compat.InstallServerPatches()
 	-- section 8's header comment).
 	EAP.Compat.PatchGetAllGatesSupergate();
 	EAP.Compat.PatchGateTypeAwareDialing();
+	EAP.Compat.PatchSupergateLightsSelf();
 
 	-- Slow dial started from the dialing UI: make the source gate's pause of
 	-- the destination gate's pending sequence also work across addons (see
@@ -1039,21 +1000,11 @@ end
 -- loaded from, through eap_include.lua) runs BEFORE lua/weapons/* and
 -- lua/entities/* are scanned and registered - so calling
 -- InstallServerPatches() immediately here would always find CAP's tools
--- and entities missing and silently do nothing. (An earlier version of
--- this file tried exactly that "immediate + InitPostEntity" two-stage
--- install, and a same-session single-shot guard on the immediate call that
--- found nothing blocked the InitPostEntity retry from ever running - this
--- is why bearing/floorchevron/goauld_iris/stargate_iris/supergate_dhd/
--- v_virus/gate_nuke/sgc_server/the ramps all silently failed to get
--- patched in practice. Fixed by only installing on InitPostEntity, which
--- fires after every entity on the map - and therefore every addon's
--- registration - is done.)
-MsgN("[EAP Compat] server/init.lua file loaded (Lib.IsCapDetected right now = "..tostring(Lib.IsCapDetected)..")");
-
+-- and entities missing and silently do nothing.
+-- So the patches are only installed on InitPostEntity, which fires after every
+-- entity on the map - and therefore every addon's registration - is done.
 hook.Add("InitPostEntity", "EAPCompat_InstallServerPatches", function()
-	MsgN("[EAP Compat] InitPostEntity fired (Lib.IsCapDetected = "..tostring(Lib.IsCapDetected)..") - "..(Lib.IsCapDetected and "installing server patches now." or "CAP not detected, skipping."));
 	if (Lib.IsCapDetected) then
 		EAP.Compat.InstallServerPatches();
-		MsgN("[EAP Compat] InstallServerPatches() finished running.");
 	end
 end);

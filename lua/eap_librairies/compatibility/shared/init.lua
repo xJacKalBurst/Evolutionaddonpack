@@ -182,8 +182,6 @@ function EAP.Compat.InstallFindByClassBridge()
 	end
 end
 
-MsgN("[EAP Compat] shared/init.lua file loaded (Lib.IsCapDetected right now = "..tostring(Lib.IsCapDetected)..")");
-
 -- Install immediately if CAP is already known to be present (shared/init.lua
 -- runs EAP.IsCapDetected() on PlayerInitialSpawn / at startup; this file is
 -- loaded after that detection in eap_include.lua, see below), and again on
@@ -191,12 +189,50 @@ MsgN("[EAP Compat] shared/init.lua file loaded (Lib.IsCapDetected right now = ".
 -- than this file loading.
 if (Lib.IsCapDetected) then
 	EAP.Compat.InstallFindByClassBridge();
-	MsgN("[EAP Compat] FindByClass bridge installed immediately (CAP already detected at file-load time).");
+end
+
+-- ===========================================================================
+-- 3. Client-side ENT:GetAllGates() fix
+-- ===========================================================================
+-- The client copy of GetAllGates() (sg_base / stargate_base cl_init.lua) is
+-- used to decide which DHD / ramp belongs to which gate. Like the server one
+-- (see server/init.lua), it buckets supergates with a class-literal compare
+-- that doesn't recognise the other addon's supergate class. Reimplemented here
+-- with the addon-agnostic .IsSupergate flag. ents.FindByClass("sg_*") is
+-- already bridged above, so it returns both addons' gates.
+
+function EAP.Compat.PatchClientGetAllGates()
+	if (not CLIENT) then return end
+	local eapStored = scripted_ents.GetStored("sg_base");
+	local capStored = scripted_ents.GetStored("stargate_base");
+	if (not eapStored or not eapStored.t or not capStored or not capStored.t) then
+		MsgN("[EAP Compat] WARNING: couldn't find 'sg_base' and/or 'stargate_base' to fix the client GetAllGates() - were they really registered yet?");
+		return;
+	end
+	if (eapStored.t.EAPCompatClientGetAllGatesPatched) then return end
+
+	local function FixedGetAllGates(self, closed)
+		local sg = {};
+		local selfIsSuper = self.Entity.IsSupergate or false;
+		for _, v in pairs(ents.FindByClass("sg_*")) do
+			if (v.IsStargate and not (closed and (v.IsOpen or v.Dialling))) then
+				if ((v.IsSupergate or false) == selfIsSuper) then
+					table.insert(sg, v);
+				end
+			end
+		end
+		return sg;
+	end
+
+	eapStored.t.GetAllGates = FixedGetAllGates;
+	capStored.t.GetAllGates = FixedGetAllGates;
+	eapStored.t.EAPCompatClientGetAllGatesPatched = true;
+	capStored.t.EAPCompatClientGetAllGatesPatched = true;
 end
 
 hook.Add("InitPostEntity", "EAPCompat_InstallFindByClassBridge", function()
-	MsgN("[EAP Compat] InitPostEntity fired for shared bridge (Lib.IsCapDetected = "..tostring(Lib.IsCapDetected)..")");
 	if (Lib.IsCapDetected) then
 		EAP.Compat.InstallFindByClassBridge();
+		EAP.Compat.PatchClientGetAllGates();
 	end
 end);

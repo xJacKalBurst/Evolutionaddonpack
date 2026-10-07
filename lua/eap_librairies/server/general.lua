@@ -786,11 +786,6 @@ function Lib.RandomGatesName(ply,ent,count,wire,mode)
 end
 hook.Add( "PlayerSpawnedSENT", "RandomGatesName", Lib.RandomGatesName );
 
---################# EAP's own entity spawn function, used by the EAP spawn tab ("eap_spawnsent")
--- The stock sandbox "gm_spawnsent" calls TryFixPropPosition() right after ENT:SpawnFunction(), which pushes
--- anything partly inside the world out of it. Gates are deliberately spawned slightly sunk into the ground
--- (see ENT:SpawnFunction), so the stock one lifts them ~50 units. This function does the same job as the
--- stock one (checks, SpawnFunction, hooks, undo, cleanup) but without that repositioning.
 -- Is this class registered in the EAP spawn list (and spawnable through its own SpawnFunction)?
 function Lib.IsEAPSpawnable(EntityName)
 	if (EntityName == nil) then return false end
@@ -803,6 +798,11 @@ function Lib.IsEAPSpawnable(EntityName)
 	return (sent and sent.t and sent.t.SpawnFunction) and true or false;
 end
 
+--################# EAP's own entity spawn function, used by the EAP spawn tab ("eap_spawnsent")
+-- The stock sandbox "gm_spawnsent" calls TryFixPropPosition() right after ENT:SpawnFunction(), which pushes
+-- anything partly inside the world out of it. Gates are deliberately spawned slightly sunk into the ground
+-- (see ENT:SpawnFunction), so the stock one lifts them ~50 units. This function does the same job as the
+-- stock one (checks, SpawnFunction, hooks, undo, cleanup) but without that repositioning.
 function EAP_Spawn_SENT(ply, EntityName, tr)
 	if (EntityName == nil or not IsValid(ply)) then return end
 

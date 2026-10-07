@@ -373,7 +373,7 @@ function ENT.Sequence:DialFail(instant_stop,play_sound)
 		action:Add({f=self.Shutdown,v={self,true,self.Entity.Active or play_sound},d=0});
 	end
 	if self.Entity:GetClass() == "sg_supergate" then
-		action:Add({f=self.DisActivateLights,v={self},d=0});
+		action:Add({f=self.DisActivateLights,v={self.Entity},d=0});
 	end
 	action:Add({f=self.SetWire,v={self,"Dialing Address",""},d=0}); -- Wire
 	action:Add({f=self.SetWire,v={self,"Dialing Symbol",""},d=0}); -- Wire

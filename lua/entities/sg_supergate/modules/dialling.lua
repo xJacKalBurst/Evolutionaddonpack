@@ -41,22 +41,22 @@ function ENT.Sequence:Dial(inbound,fast,fail)
 		if (inbound and not fast) then
 			action:Add({f=self.SetStatus,v={self,false,true,true},d=29});
 			action:Add({f=self.SetStatus,v={self,false,true},d=0.1});
-			action:Add({f=self.LightUps,v={self, 0.07},d=7}); -- Lights income
+			action:Add({f=self.LightUps,v={self.Entity, 0.07},d=7}); -- Lights income
 		end
 		if (inbound and fast) then
 			action:Add({f=self.SetStatus,v={self,false,true},d=0.1});
-			action:Add({f=self.LightUps,v={self, 0.07},d=7}); -- Lights income
+			action:Add({f=self.LightUps,v={self.Entity, 0.07},d=7}); -- Lights income
 		end
 		if (fast and not inbound) then
 			action:Add({f=self.SetStatus,v={self,false,true},d=0.1});
-			action:Add({f=self.LightUp,v={self, 0.07},d=7}); -- Lights Outbound
+			action:Add({f=self.LightUp,v={self.Entity, 0.07},d=7}); -- Lights Outbound
 		end
 	end
 	if (not fast and not inbound) then
 		action:Add({f=self.GateSound,v={self},d=0}); -- Sound
 		action:Add({f=self.SetStatus,v={self,false,true},d=0.1});
 		--action:Add({f=self.SetStatus,v={self,false,true,true},d=29});
-		action:Add({f=self.LightUp,v={self, 0.48},d=36});
+		action:Add({f=self.LightUp,v={self.Entity, 0.48},d=36});
 	end
 	return action;
 end
