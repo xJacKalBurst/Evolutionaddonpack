@@ -422,7 +422,7 @@ end
 
 function Lib.ReloadedSystemMessage()
 	for k, v in pairs(player.GetHumans()) do
-		v:SendLua("LocalPlayer():ChatPrint(Lib.Language.GetMessage(\"eap_reload\",\""..system.."\"))");
+		v:SendLua("LocalPlayer():ChatPrint(\"Evolution Addon Pack: system successfully reloaded.\")");
 	end
 end
 
