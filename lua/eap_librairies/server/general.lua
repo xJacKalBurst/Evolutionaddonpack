@@ -418,6 +418,20 @@ function Lib.ReloadSystem(groupsystem)
 			Lib.ReloadedSystemMessage();
 		end
 	);
+	-- The clients' dial menus keep their own cache of every gate's info. It is
+	-- not refreshed by the switch itself (GetGateGroup() returns "" in Galaxy
+	-- mode, GetLocale()/GetGalaxy() are forced to false, ...), so back in Group
+	-- mode the stale entries hide the gates. Resend it once every gate has run
+	-- its own ChangeSystemType() (each one detects the change within 5s).
+	timer.Create("_Lib.ResyncGateList",6.0,1,Lib.ResyncGateList);
+end
+
+function Lib.ResyncGateList()
+	for _, v in pairs(ents.FindByClass("sg_*")) do
+		if (IsValid(v) and v.IsStargate) then
+			v:SendGateInfo();
+		end
+	end
 end
 
 function Lib.ReloadedSystemMessage()

@@ -230,9 +230,28 @@ function EAP.Compat.PatchClientGetAllGates()
 	capStored.t.EAPCompatClientGetAllGatesPatched = true;
 end
 
+-- ===========================================================================
+-- 4. Client-side system type receiver ("stargate_systemtype")
+-- ===========================================================================
+-- Both addons' servers send the same "stargate_systemtype" net message (1 bit,
+-- Group/Galaxy system) and both clients register a receiver for it - but a
+-- net message has a single receiver, so whichever addon loaded last would
+-- silently stop the other one from ever seeing a system switch. One receiver
+-- reading the bit once and updating both addons' variable replaces them.
+
+function EAP.Compat.PatchClientSystemTypeReceiver()
+	if (not CLIENT) then return end
+	net.Receive("stargate_systemtype", function(len)
+		local groupsystem = net.ReadBit();
+		Lib.GroupSystem = groupsystem;
+		if (StarGate) then StarGate.GroupSystem = groupsystem; end
+	end);
+end
+
 hook.Add("InitPostEntity", "EAPCompat_InstallFindByClassBridge", function()
 	if (Lib.IsCapDetected) then
 		EAP.Compat.InstallFindByClassBridge();
 		EAP.Compat.PatchClientGetAllGates();
+		EAP.Compat.PatchClientSystemTypeReceiver();
 	end
 end);

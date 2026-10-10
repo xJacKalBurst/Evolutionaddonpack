@@ -915,7 +915,41 @@ function EAP.Compat.PatchGateActionPause()
 end
 
 -- ===========================================================================
--- 10. Install everything
+-- 10. Gate-list resync after a Group <-> Galaxy system switch (CAP gates)
+-- ===========================================================================
+-- Switching "stargate_group_system" makes every gate re-run its own
+-- ChangeSystemType(), but nothing re-sends the gate info to the clients'
+-- dial-menu caches, which keep entries cached while the other mode was active
+-- (GetGateGroup() is "" in Galaxy mode ...): back in Group mode the menu
+-- filters those gates out (it needs a non-empty group) although dialing still
+-- works. EAP re-sends its own gates' info itself (Lib.ResyncGateList in
+-- server/general.lua, called from Lib.ReloadSystem); CAP's equivalent
+-- (StarGate.ReloadSystem) has the very same gap and is not ours to edit, so
+-- CAP's gates are re-sent from here, once the switch has settled. Only CAP
+-- classes are handled, so nothing is sent twice. Going through
+-- ENT:SendGateInfo() -> ENT:RefreshGateList() also feeds the cross-addon
+-- bridge of section 7, so both addons' menus are refreshed.
+
+local SYSTEM_SWITCH_RESYNC_DELAY = 8; -- > ConvarsThink's 5s detection delay
+
+function EAP.Compat.ResyncCapGateListAfterSystemSwitch()
+	for _, ent in ipairs(ents.FindByClass("stargate_*")) do
+		if (IsValid(ent) and ent.IsStargate and ent.SendGateInfo and string.sub(ent:GetClass(), 1, 9) == "stargate_") then
+			ent:SendGateInfo();
+		end
+	end
+end
+
+function EAP.Compat.PatchSystemTypeResync()
+	cvars.AddChangeCallback("stargate_group_system", function()
+		timer.Create("EAPCompat_ResyncGateList", SYSTEM_SWITCH_RESYNC_DELAY, 1, function()
+			EAP.Compat.ResyncCapGateListAfterSystemSwitch();
+		end);
+	end, "EAPCompat_ResyncGateList"); -- same identifier = replaced, never stacked
+end
+
+-- ===========================================================================
+-- 11. Install everything
 -- ===========================================================================
 
 function EAP.Compat.InstallServerPatches()
@@ -989,6 +1023,10 @@ function EAP.Compat.InstallServerPatches()
 	-- the destination gate's pending sequence also work across addons (see
 	-- section 9's header comment).
 	EAP.Compat.PatchGateActionPause();
+
+	-- Dialing UI: refresh the clients' CAP gate list after a Group <-> Galaxy
+	-- system switch (see section 10).
+	EAP.Compat.PatchSystemTypeResync();
 end
 
 -- Unlike shared/init.lua's ents.FindByClass wrap (which only touches a
