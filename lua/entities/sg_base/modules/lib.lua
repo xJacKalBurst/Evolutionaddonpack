@@ -92,6 +92,7 @@ end
 --################# Pause any running actions (by e.g. slow dial) by AlexALX
 function ENT:PauseActions(unpause, target)
 	local s = "Lib_"..self.Entity:EntIndex().."_"; -- The uniqueID of the timers
+	if (not target) then Lib.TrackSlowDialWait(self.Entity, unpause) end -- Own sequence waiting for the ring (slow dial)
 	if (unpause or not target) then
 		for k=1,(self.Actions or 0) do
 			if (unpause) then

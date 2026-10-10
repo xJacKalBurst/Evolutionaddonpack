@@ -434,6 +434,166 @@ function Lib.ResyncGateList()
 	end
 end
 
+-- Slow dial towards a destination that plays a full inbound animation (Pegasus). The source gate pauses the destination's queued
+-- sequence at the start of its dial (PauseActions(target,false,true)) and resumes it right before its last chevron locks
+-- (PauseActions(target,true,true)). The destination plays its animation (lasting "lead" seconds), then waits at Lib.SlowDialBarrier.
+-- The source's resume step becomes Lib.ReleaseSlowDialTarget: the vortices open together, whoever gets there first waits for the other.
+-- To keep that wait short, an extra step (Lib.StartSlowDialTarget) is inserted where the source starts waiting for its ring to
+-- reach the last symbol: it resumes the destination "lead" seconds before the lock is expected, the ring time being estimated
+-- from the waits measured on the previous symbols of this very dial (Lib.TrackSlowDialWait). No chevron count is involved.
+-- Returns true when the action list contained the resume step.
+local SLOW_DIAL_MARGIN = 1.0; -- Expected wait of the destination at the end of its animation
+
+function Lib.ShiftTargetUnpause(ent, action, lead)
+	local pausefn = ent.PauseActions;
+	local pause, unpause;
+	for i, step in ipairs(action) do
+		if (step.f == pausefn and type(step.v) == "table" and step.v[3] == true) then
+			if (step.v[2] == true) then
+				unpause = i;
+				break;
+			elseif (not pause) then
+				pause = i;
+			end
+		end
+	end
+	if (not unpause or not pause or unpause <= pause + 1) then return false end
+
+	local target = action[unpause].v[1];
+	-- The step that makes the source wait for its ring on the last symbol (it pauses the source's own timers)
+	local ringwait;
+	for i = unpause - 1, pause + 1, -1 do
+		local step = action[i];
+		if (step.f == pausefn and type(step.v) == "table" and step.v[1] ~= target and step.v[2] == false and step.v[3] == nil) then
+			ringwait = i;
+			break;
+		end
+	end
+
+	local function StartOf(index)
+		local time = 0;
+		for i = 1, index - 1 do time = time + (tonumber(action[i].d) or 0) end
+		return time;
+	end
+
+	-- Release: resumes the destination, and makes the source wait if the destination isn't ready (a delay > 0 ends the step's timer package so the
+	-- following steps, the lock, are a separate timer that can be paused)
+	action[unpause].f = Lib.ReleaseSlowDialTarget;
+	action[unpause].v = { target, ent };
+	action[unpause].d = math.max(tonumber(action[unpause].d) or 0, 0.01);
+
+	ent.SlowDialWaits = {};
+	ent.SlowDialWaitStart = nil;
+	if (ringwait) then
+		local remaining = StartOf(unpause) - StartOf(ringwait); -- What the source still needs once its ring has arrived
+		table.insert(action, ringwait, { f = Lib.StartSlowDialTarget, v = { ent, target, lead, remaining }, d = 0 });
+	end
+	return true;
+end
+
+-- Records how long the source's own sequence waited for its ring (pause -> resume of its own timers). Only done during a slow dial
+-- towards a Pegasus (ent.SlowDialWaits is set by Lib.ShiftTargetUnpause).
+function Lib.TrackSlowDialWait(ent, unpause)
+	if (not ent.SlowDialWaits) then return end
+	if (unpause) then
+		if (ent.SlowDialWaitStart) then table.insert(ent.SlowDialWaits, CurTime() - ent.SlowDialWaitStart) end
+		ent.SlowDialWaitStart = nil;
+	else
+		ent.SlowDialWaitStart = CurTime();
+	end
+end
+
+-- Source, as it starts waiting for its ring on the last symbol: resume the destination early enough for its animation to be over about when
+-- the lock happens.
+function Lib.StartSlowDialTarget(source, target, lead, remaining)
+	local ent = source.Entity or source;
+	if (not IsValid(ent) or not IsValid(target) or target.InboundSlowReleased ~= false) then return end
+	local delay = 0;
+	local waits = ent.SlowDialWaits or {};
+	if (#waits > 0) then
+		local sum = 0;
+		for _, wait in ipairs(waits) do sum = sum + wait end
+		delay = math.max(sum / #waits + remaining - lead - SLOW_DIAL_MARGIN, 0);
+	end
+	local function Resume()
+		if (IsValid(ent) and IsValid(target) and target.InboundSlowReleased == false and target.Target == ent) then
+			target:PauseActions(true, true);
+		end
+	end
+	if (delay < 0.05) then Resume() else timer.Simple(delay, Resume) end
+end
+
+-- The two gates wait for each other at the end of a slow dial towards a Pegasus. If the other one disappears or stops its sequence meanwhile,
+-- the waiting gate must not open on nothing: it is shut down instead (checked every second, with a time limit as a last resort).
+local SLOW_DIAL_WAIT_LIMIT = 60;
+
+-- Destination whose source stopped: cancel the dial the way ENT:AbortDialling() does for a gate that is dialled in.
+function Lib.AbortSlowDialTarget(ent)
+	ent.InboundSlowLead = nil;
+	ent.InboundSlowReleased = nil;
+	ent.InboundSlowReady = nil;
+	ent.InboundSlowWaitingSource = nil;
+	ent:StopActions();
+	ent.OnButtLock = false;
+	ent:RunActions(ent.Sequence:DialFail(nil, true));
+end
+
+-- Source gate, at its last chevron lock: resume the destination and let it open. If the destination hasn't finished its animation yet,
+-- the source waits for it (the rest of its sequence is paused until Lib.SlowDialBarrier calls back).
+function Lib.ReleaseSlowDialTarget(target, source)
+	if (not IsValid(target)) then return end
+	target.InboundSlowReleased = true;
+	target:PauseActions(true, true);
+	local ent = source and (source.Entity or source);
+	if (target.InboundSlowReady == false and IsValid(ent)) then
+		target.InboundSlowWaitingSource = ent;
+		ent:PauseActions(false);
+		local name, ticks = "_Lib.SlowDialWatchSource_" .. ent:EntIndex(), 0;
+		timer.Create(name, 1, 0, function()
+			ticks = ticks + 1;
+			if (not IsValid(ent)) then timer.Remove(name) return end
+			if (IsValid(target) and target.InboundSlowWaitingSource ~= ent) then timer.Remove(name) return end -- The destination is ready
+			if (not IsValid(target) or target.Target ~= ent) then -- The destination is gone: nothing to open on
+				timer.Remove(name);
+				ent:EmergencyShutdown(true);
+			elseif (ticks >= SLOW_DIAL_WAIT_LIMIT) then
+				timer.Remove(name);
+				target.InboundSlowWaitingSource = nil;
+				ent:PauseActions(true);
+			end
+		end);
+	end
+end
+
+-- Destination gate, end of its own animation: wait for the source's lock (Lib.ReleaseSlowDialTarget), unless it already happened, in
+-- which case the source may be waiting for us. InboundSlowReleased is false only while a source is going to release this gate.
+function Lib.SlowDialBarrier(gate)
+	local ent = gate and (gate.Entity or gate);
+	if (not IsValid(ent)) then return end
+	ent.InboundSlowReady = true;
+	local source = ent.InboundSlowWaitingSource;
+	if (IsValid(source)) then
+		ent.InboundSlowWaitingSource = nil;
+		source:PauseActions(true);
+	end
+	if (ent.InboundSlowReleased ~= false) then return end
+	ent:PauseActions(false);
+	local name, ticks = "_Lib.SlowDialWatch_" .. ent:EntIndex(), 0;
+	timer.Create(name, 1, 0, function()
+		ticks = ticks + 1;
+		if (not IsValid(ent) or ent.InboundSlowReleased ~= false) then timer.Remove(name) return end -- Released by the source
+		local src = ent.Target;
+		if (not (IsValid(src) and src.Target == ent and src.Dialling)) then -- The source stopped its sequence: do not open
+			timer.Remove(name);
+			Lib.AbortSlowDialTarget(ent);
+		elseif (ticks >= SLOW_DIAL_WAIT_LIMIT) then
+			timer.Remove(name);
+			ent.InboundSlowReleased = true;
+			ent:PauseActions(true);
+		end
+	end);
+end
+
 function Lib.ReloadedSystemMessage()
 	for k, v in pairs(player.GetHumans()) do
 		v:SendLua("LocalPlayer():ChatPrint(\"Evolution Addon Pack: system successfully reloaded.\")");

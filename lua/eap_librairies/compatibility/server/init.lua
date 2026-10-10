@@ -602,6 +602,177 @@ function EAP.Compat.PatchSupergateLightsSelf()
 end
 
 -- ===========================================================================
+-- 6f. E2 stargateGlyphIsActivated(n) for CAP's Pegasus gates
+-- ===========================================================================
+-- EAP's sg_atlantis keeps track of the lit ring glyph(s) itself (ENT:GlyphIsLit)
+-- and EAP's E2 extension exposes it as stargateGlyphIsActivated(n). CAP's
+-- stargate_atlantis has no such state and its files are not ours to edit, so:
+--   a) its RingLight() (same maths as EAP's: the "Active Glyph" wire) is wrapped to
+--      remember the lit glyph, or "all lit" for the instant open
+--      (Sequence:InstantOpen's RingLight(36,true) step, marked here) and for the
+--      "Turn on ring light" input (TriggerInput, flagged while it runs);
+--   b) the E2 function is wrapped (EAP's extension loaded) or registered (CAP's
+--      extension file won the shadowing, see section 6) so that it answers for
+--      CAP Pegasus gates and hands every other gate to EAP's own function.
+
+local function ThisGate(self)
+	return (isentity(self.Entity) and self.Entity) or self;
+end
+
+local function WithCapGlyphTracking(Real)
+	return function(self, light, inbound, shutdown, atlantis, all, ...)
+		local ent = ThisGate(self);
+		local previous = ent.SpinLight;
+		local result = Real(self, light, inbound, shutdown, atlantis, all, ...);
+		local part, l = 1, tonumber(light) or 0;
+		if (l < 0) then l = l + 36 elseif (l > 36) then l = l - 36 end
+		if (l > 18) then part = 2; l = l - 18 end
+		if (l == 0 and previous == 17 and not shutdown) then part = 2; l = 18 end -- "36 glyph fix", as in the ring light itself
+		local glyph = (part == 2) and l + 18 or l;
+		-- Same rules as EAP's sg_atlantis: incoming ring = glyphs stay lit until the ring is turned off, dialing ring = the spinning one.
+		if (inbound) then
+			if (glyph == 0) then
+				ent.EAPCompatGlyphsOn = {};
+				ent.EAPCompatGlyphAll = false;
+			elseif (all == true or ent.EAPCompatRingOn == true or (atlantis and glyph == 36)) then
+				ent.EAPCompatGlyphAll = true;
+			else
+				ent.EAPCompatGlyphsOn = ent.EAPCompatGlyphsOn or {};
+				ent.EAPCompatGlyphsOn[glyph] = true;
+			end
+		else
+			ent.EAPCompatGlyphDial = glyph;
+		end
+		return result;
+	end
+end
+
+local function WithCapRingOnFlag(Real)
+	return function(self, k, ...)
+		if (k ~= "Turn on ring light") then return Real(self, k, ...) end
+		local ent = ThisGate(self);
+		ent.EAPCompatRingOn = true;
+		local ok, result = pcall(Real, self, k, ...);
+		ent.EAPCompatRingOn = nil;
+		if (not ok) then error(result, 0) end
+		return result;
+	end
+end
+
+local function WithAllLitInstantOpen(Real)
+	return function(self, ...)
+		local result = Real(self, ...);
+		if (type(result) == "table") then
+			for _, step in ipairs(result) do
+				if (step.f == self.RingLight and type(step.v) == "table" and step.v[2] == 36 and step.v[3] == true and step.v[4] == nil) then
+					step.v = { step.v[1], 36, true, false, false, true };
+				end
+			end
+		end
+		return result;
+	end
+end
+
+function EAP.Compat.PatchAtlantisGlyphTracking()
+	local stored = scripted_ents.GetStored("stargate_atlantis");
+	if (not stored or not stored.t or not stored.t.RingLight or not stored.t.TriggerInput
+		or not stored.t.Sequence or not stored.t.Sequence.InstantOpen) then
+		MsgN("[EAP Compat] WARNING: couldn't find 'stargate_atlantis' RingLight/TriggerInput/InstantOpen to track the lit glyphs - were they really registered yet?");
+		return;
+	end
+	if (stored.t.EAPCompatGlyphTrackingPatched) then return end
+	stored.t.RingLight = WithCapGlyphTracking(stored.t.RingLight);
+	stored.t.TriggerInput = WithCapRingOnFlag(stored.t.TriggerInput);
+	stored.t.Sequence.InstantOpen = WithAllLitInstantOpen(stored.t.Sequence.InstantOpen);
+	-- Gates already spawned run on their own copies of the class table / sequence table.
+	for _, ent in ipairs(ents.FindByClass("stargate_atlantis")) do
+		if (IsValid(ent) and ent.IsStargate and ent:GetClass() == "stargate_atlantis") then
+			ent.RingLight = WithCapGlyphTracking(ent.RingLight);
+			ent.TriggerInput = WithCapRingOnFlag(ent.TriggerInput);
+			local sequence = ent.Sequence;
+			if (sequence and rawget(sequence, "InstantOpen")) then
+				sequence.InstantOpen = WithAllLitInstantOpen(rawget(sequence, "InstantOpen"));
+			end
+		end
+	end
+	stored.t.EAPCompatGlyphTrackingPatched = true;
+end
+
+-- Glyphs on the Pegasus ring, read from the ring model like EAP does: each of its 2 parts has a bodygroup with
+-- one state per glyph, plus "off". 36 is only the fallback if the model can't be read.
+local CAP_GLYPH_COUNT = 36;
+local function CapGlyphCount(ent)
+	local ring = ent.Ring and ent.Ring.Incoming;
+	local part = ring and ring[1];
+	if (IsValid(part)) then
+		local count = part:GetBodygroupCount(0);
+		if (count and count > 1) then return 2*(count-1) end
+	end
+	return CAP_GLYPH_COUNT;
+end
+
+-- Returns true/false for a CAP Pegasus gate, nil for any other gate.
+local function CapGlyphIsLit(ent, n)
+	if (ent:GetClass() ~= "stargate_atlantis") then return nil end
+	n = tonumber(n);
+	if (not n or n ~= math.floor(n) or n < 1 or n > CapGlyphCount(ent)) then return false end
+	return ent.EAPCompatGlyphAll == true or (ent.EAPCompatGlyphsOn ~= nil and ent.EAPCompatGlyphsOn[n] == true) or ent.EAPCompatGlyphDial == n;
+end
+
+function EAP.Compat.MergeE2StargateGlyphIsActivated()
+	if (not wire_expression2_funcs or not registerFunction) then
+		MsgN("[EAP Compat] WARNING: Expression 2 isn't loaded yet - 'stargateGlyphIsActivated' not merged.");
+		return;
+	end
+	local changed = false;
+
+	-- Each signature: the entity variant checks ownership like the rest of the extension, the wirelink one doesn't.
+	for _, def in ipairs({ { "e:", true }, { "xwl:", false } }) do
+		local signature = "stargateGlyphIsActivated(" .. def[1] .. "n)";
+		local checkOwner = def[2];
+		local entry = wire_expression2_funcs[signature];
+		if (entry and entry.EAPCompatGlyph) then continue end -- Already merged (E2 keeps the same entry until it is reloaded)
+		local Original = entry and entry[3];
+		local function Merged(self, args)
+			local this, n = args[1], args[2];
+			if (not IsValid(this) or not this.IsStargate) then return -1 end
+			if (checkOwner and not (isOwner(self, this) or self.player:IsAdmin())) then return -1 end
+			if (n ~= n or n ~= math.floor(n) or n < 1 or n > CapGlyphCount(this)) then
+				if (this:GetClass() == "stargate_atlantis") then return -1 end -- Out of range for CAP's Pegasus
+			end
+			local lit = CapGlyphIsLit(this, n);
+			if (lit ~= nil) then return lit and 1 or 0 end
+			if (Original) then return Original(self, args) end
+			-- EAP's extension is shadowed by CAP's: answer for EAP's Pegasus gates ourselves.
+			if (not this.GlyphIsLit or not this.GetGlyphCount or n ~= n or n ~= math.floor(n) or n < 1 or n > this:GetGlyphCount()) then return -1 end
+			return this:GlyphIsLit(n) and 1 or 0;
+		end
+		if (entry) then
+			entry[3] = Merged;
+		else
+			registerFunction("stargateGlyphIsActivated", def[1] .. "n", "n", Merged, 5, { "this", "glyph" }, { legacy = false });
+			entry = wire_expression2_funcs[signature];
+		end
+		if (entry) then entry.EAPCompatGlyph = true end
+		changed = true;
+		MsgN("[EAP Compat] E2 function '" .. signature .. "' merged for CAP Pegasus gates.");
+	end
+	-- The editor (client side) only knows the functions the server sent when the player joined: send them again.
+	if (changed and wire_expression2_sendfunctions) then
+		for _, ply in ipairs(player.GetAll()) do wire_expression2_sendfunctions(ply); end
+	end
+end
+
+-- Expression 2 rebuilds its function registry on "wire_expression2_reload": merge again afterwards, and once more a
+-- few seconds after the map started in case E2 was not ready when the patches were installed.
+hook.Add("Expression2Reloaded", "EAPCompat_E2GlyphIsActivated", function()
+	if (Lib.IsCapDetected) then
+		EAP.Compat.MergeE2StargateGetRingAngle();
+		EAP.Compat.MergeE2StargateGlyphIsActivated();
+	end
+end);
+
+-- ===========================================================================
 -- 7. Dialing-UI address-list bridge (cross-addon net messages)
 -- ===========================================================================
 -- Each addon's dial/computer/DHD menu (lua/.../vgui/stargatemenus.lua) keeps
@@ -742,6 +913,103 @@ function EAP.Compat.PatchGateSpawnerRestoredBroadcast()
 	end
 
 	EAP.Compat.EAPCompatGateSpawnerRestoredPatched = true;
+end
+
+-- ===========================================================================
+-- 7b. Pegasus gate, inbound slow dial: normal Pegasus inbound animation (CAP)
+-- ===========================================================================
+-- When a gate using the "new slow dial" (SG1, Movie, Infinity, Universe, ...)
+-- dials a Pegasus gate in slow mode, CAP's stargate_atlantis does not run its
+-- normal inbound sequence but Sequence:InstantOpen(): the whole ring and all the
+-- chevrons light up at once, so "Active Glyph" jumps straight to 36 and wire
+-- scripts never see the glyphs one after the other, as they do for a
+-- Pegasus -> Pegasus dial. EAP's own sg_atlantis plays its normal inbound
+-- sequence in that case; CAP's files are not ours to edit, so here:
+--   a) stargate_atlantis' Sequence:Dial() is wrapped: for that call only, the
+--      source gate is made to look like a "classic" one (IsNewSlowDial off), so
+--      the normal inbound sequence is built; its length ("lead") is remembered on the
+--      Pegasus gate and a wait for the source's lock is appended to it;
+--   b) the source gate's RunActions() is wrapped: its action list holds the step
+--      that resumes the paused destination right before the last chevron locks.
+--      Lib.ShiftTargetUnpause() adds an earlier resume (the length of the animation
+--      before it, computed from both action lists - no chevron count involved)
+--      and turns the original one into the release the destination waits for at
+--      the end of its animation (Lib.SlowDialBarrier), so both event horizons
+--      still open together whatever the ring spin times were.
+-- A dial from a DHD button by button doesn't go through any of this.
+
+-- ("InboundSlowLead" is the same field EAP's own sg_atlantis sets, so EAP <-> CAP pairs work in both directions.)
+
+local function WithClassicInboundSlowDial(Real)
+	return function(self, inbound, fast, ...)
+		local ent = self.Entity;
+		local t = IsValid(ent) and ent.Target;
+		if (not (inbound and not fast and t and IsValid(t) and t.IsNewSlowDial)) then
+			if (IsValid(ent)) then ent.InboundSlowLead = nil; end
+			return Real(self, inbound, fast, ...);
+		end
+		local tbl = t:GetTable();
+		local oldFlag, oldSlowTime = rawget(tbl, "IsNewSlowDial"), rawget(tbl, "DialSlowTime");
+		tbl.IsNewSlowDial = false;
+		tbl.DialSlowTime = function() return 0 end;
+		local ok, result = pcall(Real, self, inbound, fast, ...);
+		tbl.IsNewSlowDial, tbl.DialSlowTime = oldFlag, oldSlowTime;
+		if (not ok) then error(result, 0) end
+
+		ent.InboundSlowLead = nil;
+		ent.InboundSlowReleased = nil;
+		ent.InboundSlowReady = nil;
+		ent.InboundSlowWaitingSource = nil;
+		if (type(result) == "table") then
+			-- Same as EAP's sg_atlantis: our animation is over after "total" seconds, of which 0.5 passed before the source paused us.
+			local total = 0;
+			for _, step in ipairs(result) do total = total + (tonumber(step.d) or 0) end
+			ent.InboundSlowLead = total - 0.5 + 0.2;
+			ent.InboundSlowReleased = false;
+			ent.InboundSlowReady = false;
+			-- Wait for the source's lock, then open after what the former instant sequence still took after its resume
+			table.insert(result, { f = Lib.SlowDialBarrier, v = { ent }, d = ent:CalcDelaySlow(t, true) + 0.1 });
+		end
+		return result;
+	end
+end
+
+local function WithTargetUnpauseShift(Real)
+	return function(self, action, ...)
+		local target = self.Target;
+		if (type(action) == "table" and target and IsValid(target) and target.InboundSlowLead) then
+			-- Other action lists (no resume step) can pass through here first: the lead is kept until the dial list is seen
+			-- (Lib.SlowDialBarrier's timeout is the safety net if it never comes).
+			if (Lib.ShiftTargetUnpause(self, action, target.InboundSlowLead)) then
+				target.InboundSlowLead = nil;
+			end
+		end
+		return Real(self, action, ...);
+	end
+end
+
+function EAP.Compat.PatchAtlantisInboundSlowDial()
+	local atlantis = scripted_ents.GetStored("stargate_atlantis");
+	local base = scripted_ents.GetStored("stargate_base");
+	if (not atlantis or not atlantis.t or not atlantis.t.Sequence or not atlantis.t.Sequence.Dial
+		or not base or not base.t or not base.t.RunActions) then
+		MsgN("[EAP Compat] WARNING: couldn't find 'stargate_atlantis' Sequence.Dial and/or 'stargate_base' RunActions to play the Pegasus inbound sequence - were they really registered yet?");
+		return;
+	end
+	if (atlantis.t.EAPCompatInboundSlowDialPatched) then return end
+	atlantis.t.Sequence.Dial = WithClassicInboundSlowDial(atlantis.t.Sequence.Dial);
+	base.t.RunActions = WithTargetUnpauseShift(base.t.RunActions);
+	-- Gates already spawned run on their own copies (ENT:RegisterSequenceTable for the sequences, a copy of the class table for the methods).
+	for _, ent in ipairs(ents.FindByClass("stargate_*")) do
+		if (IsValid(ent) and ent.IsStargate and string.sub(ent:GetClass(), 1, 9) == "stargate_") then
+			local sequence = ent.Sequence;
+			if (ent:GetClass() == "stargate_atlantis" and sequence and rawget(sequence, "Dial")) then
+				sequence.Dial = WithClassicInboundSlowDial(rawget(sequence, "Dial"));
+			end
+			if (ent.RunActions) then ent.RunActions = WithTargetUnpauseShift(ent.RunActions); end
+		end
+	end
+	atlantis.t.EAPCompatInboundSlowDialPatched = true;
 end
 
 -- ===========================================================================
@@ -899,6 +1167,8 @@ function EAP.Compat.PatchGateActionPause()
 			if (isentity(ent) and ent:IsValid()) then
 				local class = ent:GetClass();
 				if (string.sub(class, 1, 9) == "stargate_") then
+					local unpause, target = ...;
+					if (not target) then Lib.TrackSlowDialWait(ent, unpause) end -- Own sequence waiting for the ring (slow dial), as in EAP's PauseActions
 					return CapPauseActions(self, ...);
 				elseif (string.sub(class, 1, 3) == "sg_") then
 					return EapPauseActions(self, ...);
@@ -1000,6 +1270,9 @@ function EAP.Compat.InstallServerPatches()
 
 	-- Scripting backends (E2 / ExpAdv2 / Wire gates / Starfall)
 	EAP.Compat.MergeE2StargateGetRingAngle();
+	EAP.Compat.MergeE2StargateGlyphIsActivated();
+	timer.Simple(5, EAP.Compat.MergeE2StargateGlyphIsActivated);
+	EAP.Compat.PatchAtlantisGlyphTracking();
 	EAP.Compat.MergeWireGateGetRingAngle();
 	EAP.Compat.MergeExpAdv2StargateGetRingAngle();
 	EAP.Compat.MergeStarfallStargateGetRingAngle();
@@ -1018,6 +1291,10 @@ function EAP.Compat.InstallServerPatches()
 	EAP.Compat.PatchGetAllGatesSupergate();
 	EAP.Compat.PatchGateTypeAwareDialing();
 	EAP.Compat.PatchSupergateLightsSelf();
+
+	-- Pegasus gate as the destination of a slow dial from another gate type:
+	-- light the ring glyph by glyph (see section 7b).
+	EAP.Compat.PatchAtlantisInboundSlowDial();
 
 	-- Slow dial started from the dialing UI: make the source gate's pause of
 	-- the destination gate's pending sequence also work across addons (see

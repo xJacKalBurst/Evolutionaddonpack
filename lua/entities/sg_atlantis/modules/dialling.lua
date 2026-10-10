@@ -49,12 +49,16 @@ function ENT.Sequence:Dial(inbound,fast,fail,busy)
 	local t = self.Entity.Target;
 	--################# INBOUND DIALLING
 	if(inbound) then
-		if (inbound and not fast and IsValid(t) and t.IsNewSlowDial) then
-			action:Add({f=self.SetStatus,v={self,false,true,true},d=0.6}); -- The first true tells, "we are in use", but the last tells wire NOT to indicate us as "Active". Otherwise, on a slow dial-in, a gate becomes "Wire-Active" even if it's not currently dialling
-			action:Add({f=self.SetStatus,v={self,false,true},d=0.1});
-			local dly = self:CalcDelaySlow(t,true)
-			action = self.Sequence:InstantOpen(action,dly,false,true);
-		else
+		-- A gate using the "new slow dial" (SG1, Movie, ...) used to get the instant "InstantOpen" sequence here (all glyphs lit at once,
+		-- chevrons all at once). Pegasus now plays its own normal inbound sequence below for them too, exactly as for Pegasus -> Pegasus.
+		-- That sequence is longer than the instant one: ENT:ActivateStargate() resumes it earlier (see InboundSlowLead), it then waits for the source's last
+		-- chevron (Lib.SlowDialBarrier) and the gates open together.
+		self.Entity.InboundSlowLead = nil;
+		self.Entity.InboundSlowReleased = nil;
+		self.Entity.InboundSlowReady = nil;
+		self.Entity.InboundSlowWaitingSource = nil;
+		local newslow = (not fast and IsValid(t) and t.IsNewSlowDial);
+		do
 			local add = 0
 			if (IsValid(t)) then
 				add = self:CalcDelayFast(t,inbound);
@@ -76,7 +80,7 @@ function ENT.Sequence:Dial(inbound,fast,fail,busy)
 					add = add + (0.1-rnd[i])*4;
 				end
 			end
-			if IsValid(t) and not fast then
+			if IsValid(t) and not fast and not newslow then
 				add = add + t:DialSlowTime(chevs,self)
 			end
 			action:Add({f=self.SetStatus,v={self,false,true,true},d=add}); -- The first true tells, "we are in use", but the last tells wire NOT to indicate us as "Active". Otherwise, on a slow dial-in, a gate becomes "Wire-Active" even if it's not currently dialling
@@ -148,6 +152,16 @@ function ENT.Sequence:Dial(inbound,fast,fail,busy)
 						action:Add({f=self.RingLight,v={self,chevron+k,true},d=rnd[1+i]});
 					end
 				end
+			end
+			if (newslow) then
+				-- Our animation is over after "total" seconds, of which 0.5 passed before the source paused us: it has to resume us that long before its last lock.
+				local total = 0;
+				for _,step in ipairs(action) do total = total + (tonumber(step.d) or 0) end
+				self.Entity.InboundSlowLead = total - 0.5 + 0.2;
+				self.Entity.InboundSlowReleased = false;
+				self.Entity.InboundSlowReady = false;
+				-- Then wait for the lock, and open after what the former instant sequence still took after its resume
+				action:Add({f=Lib.SlowDialBarrier,v={self.Entity},d=self:CalcDelaySlow(t,true)+0.1});
 			end
 		end
 	else
@@ -422,7 +436,7 @@ function ENT.Sequence:InstantOpen(action,delay,instant,inbound,slow,nox,fail)
 		action:Add({f=self.DHDSetChevron,v={self,i},d=0});
 	end
 	if (inbound) then
-		action:Add({f=self.RingLight,v={self,36,true},d=0});
+		action:Add({f=self.RingLight,v={self,36,true,false,false,true},d=0});
 	end
 	local dialaddress = "";
 	for i=1,chevs do

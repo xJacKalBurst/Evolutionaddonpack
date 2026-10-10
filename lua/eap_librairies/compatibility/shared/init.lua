@@ -248,10 +248,44 @@ function EAP.Compat.PatchClientSystemTypeReceiver()
 	end);
 end
 
+-- ===========================================================================
+-- 5. Client-side gate info pop-up (address / group / name under the crosshair)
+-- ===========================================================================
+-- Both addons draw that pop-up from their own HUDPaint hook, at the same place, and each one tests its own class names (the Universe
+-- gate's label for instance). With both loaded, a gate was drawn by both hooks: the other addon's one with the wrong layout, and the two
+-- boxes overlapped. Each hook now only runs for the gates of its own addon: EAP's for "sg_*", CAP's for "stargate_*".
+
+local GATE_INFO_HOOKS = {
+	{ name = "Lib.Hook.HUDPaint.ShowAddressAndGroupAndName", prefix = "sg_" },
+	{ name = "StarGate.Hook.HUDPaint.ShowAddressAndGroupAndName", prefix = "stargate_" },
+};
+
+local wrappedGateInfoHooks = {};
+
+function EAP.Compat.RestrictGateInfoHooks()
+	if (not CLIENT) then return end
+	local hooks = hook.GetTable()["HUDPaint"] or {};
+	for _, info in ipairs(GATE_INFO_HOOKS) do
+		local original = hooks[info.name];
+		if (original and not wrappedGateInfoHooks[info.name]) then
+			wrappedGateInfoHooks[info.name] = true;
+			hook.Add("HUDPaint", info.name, function()
+				local p = LocalPlayer();
+				if (not IsValid(p)) then return end
+				local e = p:GetEyeTrace().Entity;
+				if (IsValid(e) and string.sub(e:GetClass(), 1, #info.prefix) == info.prefix) then
+					return original();
+				end
+			end);
+		end
+	end
+end
+
 hook.Add("InitPostEntity", "EAPCompat_InstallFindByClassBridge", function()
 	if (Lib.IsCapDetected) then
 		EAP.Compat.InstallFindByClassBridge();
 		EAP.Compat.PatchClientGetAllGates();
 		EAP.Compat.PatchClientSystemTypeReceiver();
+		EAP.Compat.RestrictGateInfoHooks();
 	end
 end);

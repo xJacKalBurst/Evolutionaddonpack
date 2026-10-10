@@ -281,6 +281,20 @@ e2function number wirelink:stargateOpen()
 	end
 end
 
+-- Pegasus only: is the ring glyph n (1 to the number of glyphs, 36) lit right now? (1 = yes, 0 = no, -1 = not a Pegasus gate, or n is not a whole number from 1 to the glyph count)
+-- After an instant open (DHD button by button, ring light on) every glyph is lit, during a normal dial only the spinning one.
+e2function number entity:stargateGlyphIsActivated(number n)
+	if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return -1 end
+	if not this.GlyphIsLit or not this.GetGlyphCount or n ~= n or n ~= math.floor(n) or n < 1 or n > this:GetGlyphCount() then return -1 end
+	return this:GlyphIsLit(n) and 1 or 0
+end
+
+e2function number wirelink:stargateGlyphIsActivated(number n)
+	if not IsValid(this) or not this.IsStargate then return -1 end
+	if not this.GlyphIsLit or not this.GetGlyphCount or n ~= n or n ~= math.floor(n) or n < 1 or n > this:GetGlyphCount() then return -1 end
+	return this:GlyphIsLit(n) and 1 or 0
+end
+
 e2function number entity:stargateInbound()
  	if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return -1 end
 	local ret = !this.Outbound and this.Active

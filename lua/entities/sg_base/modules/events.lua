@@ -315,6 +315,11 @@ function ENT:ActivateStargate(inbound,fast)
 					self:SetShutdown(false);
 					if(not DEBUG) then -- No debug, no instant open
 						action = self.Sequence:Dial(inbound,fast,fail,busy) + action;
+						if (not inbound and not fast and IsValid(e) and e.InboundSlowLead) then
+							-- The destination plays an inbound sequence that must be over when we lock our last chevron: resume it earlier
+							if (not Lib.ShiftTargetUnpause(self,action,e.InboundSlowLead)) then e.InboundSlowReleased = true end -- Nothing to wait for
+							e.InboundSlowLead = nil;
+						end
 					end
 				else
 					action = self.Sequence:DialFail(nil,true);
