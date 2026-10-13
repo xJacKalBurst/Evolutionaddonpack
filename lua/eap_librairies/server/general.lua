@@ -1038,3 +1038,53 @@ hook.Add("Initialize", "EAP.SpawnSENTRouting", function()
 		return Lib.StockSpawn_SENT(ply, EntityName, tr);
 	end
 end);
+
+--################# Source gate seen by a destination gate (scripts: stargateTargetAddress / Group / DialingAddress)
+-- FindGate (run when a gate starts to dial) tells the destination who is calling by filling its DialledAddress - which is what its
+-- "Dialing Address" / "Dialed Symbol" wire outputs then show, symbol by symbol. The destination "becomes aware" of the caller only
+-- when it activates itself, so a snapshot is taken at that moment of dialling and only handed out once the destination is Active.
+-- It honours "stargate_show_inbound_address" exactly like the wire outputs do (hidden = empty strings).
+local InboundRecorders = setmetatable({}, { __mode = "k" }); -- wrappers made below: never wrap one twice
+function Lib.RecordInboundSource(FindGateReal)
+	if (InboundRecorders[FindGateReal]) then return FindGateReal end
+	local Recorder = function(self, no_target, ...)
+		local result = FindGateReal(self, no_target, ...);
+		local dest = self.Target;
+		if (not no_target and IsValid(dest) and dest ~= self.Entity and dest.IsStargate) then
+			dest.InboundSourceInfo = nil; -- Never keep the one of a previous call
+			local dialled = dest.DialledAddress;
+			local source = self.Entity;
+			local address = source:GetGateAddress() or "";
+			if (type(dialled) == "table" and #dialled >= 8 and dialled[#dialled] == "DIAL" and address:len() == 6) then
+				local first = table.concat(dialled, "", 1, 6);
+				if (first == address or first == "") then -- Really written by FindGate for this source (hidden address = empty symbols)
+					local count = #(self.DialledAddress or {}); -- Same chevron count as the inbound sequence uses
+					local chevs = (count >= 8 and count <= 10) and count - 1 or 7;
+					dest.InboundSourceInfo = {
+						source = source,
+						address = first,
+						group = (first == "") and "" or (source:GetGateGroup() or ""),
+						dialing = table.concat(dialled, "", 1, math.min(chevs, #dialled - 1)),
+					};
+				end
+			end
+		end
+		return result;
+	end
+	InboundRecorders[Recorder] = true;
+	return Recorder;
+end
+
+-- The info of the gate dialling "dest", or nil as long as "dest" has not activated itself (or is not being dialled at all). It is given for as
+-- long as the gate is Active: SetStatus(false,false), the very last step of its close / fail sequence, is what ends it (the wire outputs are
+-- emptied just before, by the same sequence), so it also covers the closing animation - not only the time the gate is open.
+function Lib.GetInboundSourceInfo(dest)
+	if (not IsValid(dest) or not dest.IsStargate or dest.Outbound or not dest.Active) then return nil end
+	return dest.InboundSourceInfo;
+end
+
+-- "address", "group" or "dialing" of the gate dialling "dest" ("" if there is none yet)
+function Lib.GetInboundSourceField(dest, field)
+	local info = Lib.GetInboundSourceInfo(dest);
+	return info and info[field] or "";
+end

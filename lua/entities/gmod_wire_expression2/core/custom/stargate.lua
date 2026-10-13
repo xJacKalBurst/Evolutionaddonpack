@@ -64,6 +64,43 @@ e2function string wirelink:stargateAddress()
 	return this:GetGateAddress() or ""
 end
 
+-- What the gate dialling this one looks like. Nothing ("") until this gate has activated itself (it only "sees" the caller then), and
+-- nothing if "stargate_show_inbound_address" hides the caller: same data as its "Dialing Address" wire output, but given all at once.
+--   stargateTargetAddress()       address of the calling gate (6 symbols)
+--   stargateTargetGroup()         group of the calling gate
+--   stargateTargetDialingAddress() address as sent to the "Dialing Address" output: address + point of origin (+ 8th/9th chevron)
+local function inboundField(gate, field)
+	if not IsValid(gate) or not gate.IsStargate then return "" end
+	return Lib.GetInboundSourceField(gate, field)
+end
+
+e2function string entity:stargateTargetAddress()
+	if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return "" end
+	return inboundField(this, "address")
+end
+
+e2function string wirelink:stargateTargetAddress()
+	return inboundField(this, "address")
+end
+
+e2function string entity:stargateTargetGroup()
+	if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return "" end
+	return inboundField(this, "group")
+end
+
+e2function string wirelink:stargateTargetGroup()
+	return inboundField(this, "group")
+end
+
+e2function string entity:stargateTargetDialingAddress()
+	if not IsValid(this) or not this.IsStargate or not(isOwner(self,this) or self.player:IsAdmin()) then return "" end
+	return inboundField(this, "dialing")
+end
+
+e2function string wirelink:stargateTargetDialingAddress()
+	return inboundField(this, "dialing")
+end
+
 __e2setcost( 5 )
 
 e2function void entity:stargateSetAddress(string address)

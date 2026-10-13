@@ -913,6 +913,9 @@ function ENT:FindGateGalaxy(no_target,addr)
 	end
 end
 
+-- Remember who is calling the destination gate (see Lib.RecordInboundSource); wraps both finders, FindGate calls FindGateGalaxy.
+if (Lib.RecordInboundSource) then ENT.FindGate = Lib.RecordInboundSource(ENT.FindGate) end
+
 -- Set the Dial Delay @Llapp, recode by AlexALX
 function ENT:GetDelayNN(tgate)
 	if (tgate.EventHorizonData.OpeningDelay>self.EventHorizonData.OpeningDelay) then

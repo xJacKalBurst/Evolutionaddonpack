@@ -769,8 +769,126 @@ hook.Add("Expression2Reloaded", "EAPCompat_E2GlyphIsActivated", function()
 	if (Lib.IsCapDetected) then
 		EAP.Compat.MergeE2StargateGetRingAngle();
 		EAP.Compat.MergeE2StargateGlyphIsActivated();
+		EAP.Compat.MergeE2StargateTargetAddress();
 	end
 end);
+
+-- ===========================================================================
+-- 6g. stargateTargetAddress() / stargateTargetGroup() / stargateTargetDialingAddress() for every scripting backend
+-- ===========================================================================
+-- What the gate dialling a destination looks like, handed to scripts only once the destination has activated itself (see
+-- Lib.RecordInboundSource / Lib.GetInboundSourceInfo in server/general.lua, which only rely on the addon-agnostic .IsStargate / .Target /
+-- .Active / .Outbound / GetGateAddress() / GetGateGroup()).
+--   a) CAP's FindGate (the code telling the destination who is calling) is wrapped to take the snapshot EAP's own takes (PatchCapInboundSource);
+--   b) EAP's extension files define the functions (E2, ExpAdv2, Starfall). When CAP's identically-named files are the ones that run
+--      (see section 6), they don't exist: they are registered here, with the same behaviour, so they work on EAP and CAP gates alike.
+
+local INBOUND_FUNCTIONS = {
+	{ "stargateTargetAddress", "address", "Returns the address of the gate dialling this one (empty until this gate has activated itself, or if hidden)." },
+	{ "stargateTargetGroup", "group", "Returns the group of the gate dialling this one (empty until this gate has activated itself, or if hidden)." },
+	{ "stargateTargetDialingAddress", "dialing", "Returns the dialling address as sent to the Dialing Address output (address + point of origin + 8th/9th chevron), all at once, once this gate has activated itself." },
+};
+
+function EAP.Compat.PatchCapInboundSource()
+	local stored = scripted_ents.GetStored("stargate_base");
+	if (not stored or not stored.t or not stored.t.FindGate or not Lib.RecordInboundSource) then
+		MsgN("[EAP Compat] WARNING: couldn't find 'stargate_base' FindGate to track the inbound source gate - was it really registered yet?");
+		return;
+	end
+	if (stored.t.EAPCompatInboundSourcePatched) then return end
+	stored.t.FindGate = Lib.RecordInboundSource(stored.t.FindGate);
+	-- Gates already spawned run on their own copy of the class table.
+	for _, ent in ipairs(ents.FindByClass("stargate_*")) do
+		if (IsValid(ent) and ent.IsStargate and ent.FindGate and string.sub(ent:GetClass(), 1, 9) == "stargate_" and not ent.EAPCompatInboundSourcePatched) then
+			ent.FindGate = Lib.RecordInboundSource(ent.FindGate);
+			ent.EAPCompatInboundSourcePatched = true;
+		end
+	end
+	stored.t.EAPCompatInboundSourcePatched = true;
+end
+
+function EAP.Compat.MergeE2StargateTargetAddress()
+	if (not wire_expression2_funcs or not registerFunction) then return end
+	local changed = false;
+	for _, def in ipairs({ { "e:", true }, { "xwl:", false } }) do
+		local checkOwner = def[2];
+		for _, fn in ipairs(INBOUND_FUNCTIONS) do
+			local signature = fn[1] .. "(" .. def[1] .. ")";
+			if (wire_expression2_funcs[signature]) then continue end -- EAP's extension is the one running (or already merged)
+			local field = fn[2];
+			registerFunction(fn[1], def[1], "s", function(self, args)
+				local this = args[1];
+				if (not IsValid(this) or not this.IsStargate) then return "" end
+				if (checkOwner and not (isOwner(self, this) or self.player:IsAdmin())) then return "" end
+				return Lib.GetInboundSourceField(this, field);
+			end, 5, { "this" }, { legacy = false });
+			changed = true;
+			MsgN("[EAP Compat] E2 function '" .. signature .. "' registered.");
+		end
+	end
+	if (changed and wire_expression2_sendfunctions) then
+		for _, ply in ipairs(player.GetAll()) do wire_expression2_sendfunctions(ply); end
+	end
+end
+
+-- ExpAdv2: re-adding a VM function with the same name and signature overwrites it (same as in section 6c), with the same behaviour as EAP's.
+function EAP.Compat.MergeExpAdv2StargateTargetAddress()
+	if (not WireLib or not EXPADV) then return end
+	local Component = EXPADV.GetComponent("stargate");
+	if (not Component) then return end
+
+	for _, fn in ipairs(INBOUND_FUNCTIONS) do
+		local field = fn[2];
+		Component:AddVMFunction( fn[1], "e:", "s", function( Context, Trace, Entity )
+			if (not IsValid(Entity) or not Entity.IsStargate or not EXPADV.PPCheck(Context, Entity)) then return "" end
+			return Lib.GetInboundSourceField(Entity, field);
+		end)
+		Component:AddFunctionHelper( fn[1], "e:", fn[3] )
+
+		Component:AddVMFunction( fn[1], "wl:", "s", function( Context, Trace, Entity )
+			if (not IsValid(Entity) or not Entity.IsStargate) then return "" end
+			return Lib.GetInboundSourceField(Entity, field);
+		end)
+		Component:AddFunctionHelper( fn[1], "wl:", fn[3] )
+	end
+end
+
+-- Starfall: only defined when the method is missing (same shared methods tables as section 6d).
+function EAP.Compat.MergeStarfallStargateTargetAddress()
+	if (not SF or not SF.Entities) then return end
+
+	local function canModify(ply, ent)
+		return SF.Entities.GetOwner(ent) == ply or game.SinglePlayer() and ent.GateSpawnerSpawned;
+	end
+
+	local ents_methods = SF.Entities.Methods;
+	local wl_methods = SF.Wire and SF.Wire.WlMethods;
+	for _, fn in ipairs(INBOUND_FUNCTIONS) do
+		local name, field = fn[1], fn[2];
+		if (ents_methods and not ents_methods[name]) then
+			local ents_metatable = SF.Entities.Metatable;
+			local unwrap = SF.Entities.Unwrap;
+			ents_methods[name] = function(self)
+				SF.CheckType( self, ents_metatable );
+				local this = unwrap( self );
+				if not canModify(SF.instance.player,this) then return false, "Insufficient permissions" end
+				if not this.IsStargate then return false, "entity is not stargate" end
+				return Lib.GetInboundSourceField(this, field);
+			end
+		end
+		if (wl_methods and not wl_methods[name]) then
+			local wl_metatable = SF.Wire.WlMetatable;
+			local wl_unwrap = SF.Wire.WlUnwrap;
+			wl_methods[name] = function(self)
+				SF.CheckType( self, wl_metatable );
+				local this = wl_unwrap( self );
+				if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.read" ) then return false, "Insufficient permissions" end
+				if not this.IsStargate then return false, "entity is not stargate" end
+				return Lib.GetInboundSourceField(this, field);
+			end
+		end
+	end
+end
 
 -- ===========================================================================
 -- 7. Dialing-UI address-list bridge (cross-addon net messages)
@@ -1276,6 +1394,11 @@ function EAP.Compat.InstallServerPatches()
 	EAP.Compat.MergeWireGateGetRingAngle();
 	EAP.Compat.MergeExpAdv2StargateGetRingAngle();
 	EAP.Compat.MergeStarfallStargateGetRingAngle();
+	EAP.Compat.PatchCapInboundSource();
+	EAP.Compat.MergeE2StargateTargetAddress();
+	timer.Simple(5, EAP.Compat.MergeE2StargateTargetAddress);
+	EAP.Compat.MergeExpAdv2StargateTargetAddress();
+	EAP.Compat.MergeStarfallStargateTargetAddress();
 
 	-- Dialing UI: make each addon's gate address broadcasts also reach the
 	-- other addon's client-side dial/computer/DHD menu (see section 7's

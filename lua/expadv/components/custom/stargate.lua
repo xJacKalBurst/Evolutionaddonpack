@@ -75,6 +75,54 @@ if IsValid(@value 1) and @value 1.IsStargate then
 end
 ]], "@result" )
 Component:AddFunctionHelper( "stargateAddress", "wl:", "Returns stargate address." )
+
+Component:AddPreparedFunction( "stargateTargetAddress", "e:", "s",
+[[@define result = ""
+if IsValid(@value 1) and @value 1.IsStargate and EXPADV.PPCheck(Context,@value 1) then
+	@result = Lib.GetInboundSourceField(@value 1, "address")
+end
+]], "@result" )
+Component:AddFunctionHelper( "stargateTargetAddress", "e:", "Returns the address of the gate dialling this one (empty until this gate has activated itself, or if hidden)." )
+
+Component:AddPreparedFunction( "stargateTargetAddress", "wl:", "s",
+[[@define result = ""
+if IsValid(@value 1) and @value 1.IsStargate then
+	@result = Lib.GetInboundSourceField(@value 1, "address")
+end
+]], "@result" )
+Component:AddFunctionHelper( "stargateTargetAddress", "wl:", "Returns the address of the gate dialling this one (empty until this gate has activated itself, or if hidden)." )
+
+Component:AddPreparedFunction( "stargateTargetGroup", "e:", "s",
+[[@define result = ""
+if IsValid(@value 1) and @value 1.IsStargate and EXPADV.PPCheck(Context,@value 1) then
+	@result = Lib.GetInboundSourceField(@value 1, "group")
+end
+]], "@result" )
+Component:AddFunctionHelper( "stargateTargetGroup", "e:", "Returns the group of the gate dialling this one (empty until this gate has activated itself, or if hidden)." )
+
+Component:AddPreparedFunction( "stargateTargetGroup", "wl:", "s",
+[[@define result = ""
+if IsValid(@value 1) and @value 1.IsStargate then
+	@result = Lib.GetInboundSourceField(@value 1, "group")
+end
+]], "@result" )
+Component:AddFunctionHelper( "stargateTargetGroup", "wl:", "Returns the group of the gate dialling this one (empty until this gate has activated itself, or if hidden)." )
+
+Component:AddPreparedFunction( "stargateTargetDialingAddress", "e:", "s",
+[[@define result = ""
+if IsValid(@value 1) and @value 1.IsStargate and EXPADV.PPCheck(Context,@value 1) then
+	@result = Lib.GetInboundSourceField(@value 1, "dialing")
+end
+]], "@result" )
+Component:AddFunctionHelper( "stargateTargetDialingAddress", "e:", "Returns the dialling address as sent to the Dialing Address output (address + point of origin + 8th/9th chevron), all at once, once this gate has activated itself." )
+
+Component:AddPreparedFunction( "stargateTargetDialingAddress", "wl:", "s",
+[[@define result = ""
+if IsValid(@value 1) and @value 1.IsStargate then
+	@result = Lib.GetInboundSourceField(@value 1, "dialing")
+end
+]], "@result" )
+Component:AddFunctionHelper( "stargateTargetDialingAddress", "wl:", "Returns the dialling address as sent to the Dialing Address output (address + point of origin + 8th/9th chevron), all at once, once this gate has activated itself." )
 -------------------------------------------------------------------------
 
 Component:AddPreparedFunction( "stargateSetAddress", "e:s", "",

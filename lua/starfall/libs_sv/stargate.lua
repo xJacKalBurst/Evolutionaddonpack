@@ -33,6 +33,33 @@ function ents_methods:stargateAddress()
 	return this:GetGateAddress()
 end
 
+-- Address of the gate dialling this one ("" until this gate has activated itself, or if hidden)
+function ents_methods:stargateTargetAddress()
+	SF.CheckType( self, ents_metatable )
+	local this = unwrap( self )
+	if not canModify(SF.instance.player,this) then return false, "Insufficient permissions" end
+	if not this.IsStargate then return false, "entity is not stargate" end
+	return Lib.GetInboundSourceField(this, "address")
+end
+
+-- Group of the gate dialling this one ("" until this gate has activated itself, or if hidden)
+function ents_methods:stargateTargetGroup()
+	SF.CheckType( self, ents_metatable )
+	local this = unwrap( self )
+	if not canModify(SF.instance.player,this) then return false, "Insufficient permissions" end
+	if not this.IsStargate then return false, "entity is not stargate" end
+	return Lib.GetInboundSourceField(this, "group")
+end
+
+-- Dialling address as sent to the "Dialing Address" output (address + point of origin + 8th/9th chevron), all at once ("" until this gate has activated itself, or if hidden)
+function ents_methods:stargateTargetDialingAddress()
+	SF.CheckType( self, ents_metatable )
+	local this = unwrap( self )
+	if not canModify(SF.instance.player,this) then return false, "Insufficient permissions" end
+	if not this.IsStargate then return false, "entity is not stargate" end
+	return Lib.GetInboundSourceField(this, "dialing")
+end
+
 function ents_methods:stargateSetAddress(address)
 	SF.CheckType( self, ents_metatable )
 	SF.CheckType( address, "string" )
@@ -532,6 +559,30 @@ function wirelink_methods:stargateAddress()
 	if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.read" ) then return false, "Insufficient permissions" end
 	if not this.IsStargate then return false, "entity is not stargate" end
 	return this:GetGateAddress()
+end
+
+function wirelink_methods:stargateTargetAddress()
+	SF.CheckType( self, wirelink_metatable )
+	local this = unwrap( self )
+	if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.read" ) then return false, "Insufficient permissions" end
+	if not this.IsStargate then return false, "entity is not stargate" end
+	return Lib.GetInboundSourceField(this, "address")
+end
+
+function wirelink_methods:stargateTargetGroup()
+	SF.CheckType( self, wirelink_metatable )
+	local this = unwrap( self )
+	if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.read" ) then return false, "Insufficient permissions" end
+	if not this.IsStargate then return false, "entity is not stargate" end
+	return Lib.GetInboundSourceField(this, "group")
+end
+
+function wirelink_methods:stargateTargetDialingAddress()
+	SF.CheckType( self, wirelink_metatable )
+	local this = unwrap( self )
+	if not SF.Permissions.check( SF.instance.player, nil, "wire.wirelink.read" ) then return false, "Insufficient permissions" end
+	if not this.IsStargate then return false, "entity is not stargate" end
+	return Lib.GetInboundSourceField(this, "dialing")
 end
 
 function wirelink_methods:stargateSetAddress(address)
